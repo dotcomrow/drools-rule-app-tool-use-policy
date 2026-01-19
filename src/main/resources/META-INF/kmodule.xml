@@ -1,0 +1,5 @@
+<kmodule xmlns="http://www.drools.org/xsd/kmodule">
+  <kbase name="tool-use-policy" default="true" packages="com.dotcomrow.rules.tooluse">
+    <ksession name="tool-use-ksession" default="true" />
+  </kbase>
+</kmodule>

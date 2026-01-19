@@ -1,0 +1,31 @@
+package com.dotcomrow.rules.tooluse
+
+import com.dotcomrow.rules.tooluse.ToolUseRequest;
+import com.dotcomrow.rules.tooluse.ToolUseDecision;
+
+rule "Deny destructive tool for guest or high risk"
+  salience 100
+when
+  ToolUseRequest((tool == "refund" || tool == "delete") && (userRole == "guest" || riskScore >= 80))
+  not ToolUseDecision()
+then
+  insert(new ToolUseDecision("DENY", "guest_or_high_risk_destructive_tool"));
+end
+
+rule "Review high risk or high amount"
+  salience 50
+when
+  ToolUseRequest(amount > 200 || riskScore >= 60)
+  not ToolUseDecision()
+then
+  insert(new ToolUseDecision("REVIEW", "risk_or_amount_threshold"));
+end
+
+rule "Allow by default"
+  salience 0
+when
+  ToolUseRequest()
+  not ToolUseDecision()
+then
+  insert(new ToolUseDecision("ALLOW", "default_allow"));
+end
