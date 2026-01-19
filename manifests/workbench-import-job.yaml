@@ -125,16 +125,22 @@ spec:
               elif [ "$SPACE_CODE" = "202" ]; then
                 echo "Space creation accepted; waiting for ${SPACE_NAME} to be ready..."
                 READY_CODE=""
+                FOUND="false"
                 for i in $(seq 1 30); do
-                  READY_CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+                  LIST_BODY="$(curl -sS -w '\n%{http_code}' \
                     -H "Authorization: Bearer ${TOKEN}" \
-                    "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}" || true)"
+                    "${WORKBENCH_BASE}/rest/spaces" || true)"
+                  LIST_JSON="$(printf '%s' "$LIST_BODY" | sed '$d')"
+                  READY_CODE="$(printf '%s' "$LIST_BODY" | tail -n 1)"
                   if [ "$READY_CODE" = "200" ]; then
-                    break
+                    if printf '%s' "$LIST_JSON" | jq -e --arg name "$SPACE_NAME" '.[] | select(.name == $name)' >/dev/null 2>&1; then
+                      FOUND="true"
+                      break
+                    fi
                   fi
                   sleep 3
                 done
-                if [ "$READY_CODE" = "200" ]; then
+                if [ "$FOUND" = "true" ]; then
                   echo "OK: Space ready: ${SPACE_NAME}"
                 else
                   echo "ERROR: Space not ready after async create (last HTTP ${READY_CODE})"
