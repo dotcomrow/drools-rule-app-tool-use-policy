@@ -122,6 +122,24 @@ spec:
                 -d "$SPACE_PAYLOAD" || true)"
               if [ "$SPACE_CODE" = "201" ] || [ "$SPACE_CODE" = "200" ] || [ "$SPACE_CODE" = "409" ]; then
                 echo "OK: Space ready: ${SPACE_NAME}"
+              elif [ "$SPACE_CODE" = "202" ]; then
+                echo "Space creation accepted; waiting for ${SPACE_NAME} to be ready..."
+                READY_CODE=""
+                for i in $(seq 1 30); do
+                  READY_CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}" || true)"
+                  if [ "$READY_CODE" = "200" ]; then
+                    break
+                  fi
+                  sleep 3
+                done
+                if [ "$READY_CODE" = "200" ]; then
+                  echo "OK: Space ready: ${SPACE_NAME}"
+                else
+                  echo "ERROR: Space not ready after async create (last HTTP ${READY_CODE})"
+                  exit 1
+                fi
               else
                 echo "ERROR: Failed to create space (HTTP ${SPACE_CODE})"
                 exit 1
