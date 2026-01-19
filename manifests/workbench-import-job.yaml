@@ -41,6 +41,7 @@ spec:
               REPO_NAME="${REPO_NAME:-}"
               REPO_URL="${REPO_URL:-}"
               SPACE_WAIT_SECONDS="${SPACE_WAIT_SECONDS:-300}"
+              SPACE_OWNER="${SPACE_OWNER:-}"
               if [ -z "$WORKBENCH_BASE" ] || [ -z "$SPACE_NAME" ] || [ -z "$SPACE_DESC" ] || [ -z "$DEFAULT_GROUP_ID" ] || [ -z "$REPO_NAME" ] || [ -z "$REPO_URL" ]; then
                 echo "ERROR: Missing import config (WORKBENCH_BASE, SPACE_NAME, SPACE_DESC, DEFAULT_GROUP_ID, REPO_NAME, REPO_URL)"
                 exit 1
@@ -60,6 +61,9 @@ spec:
               if [ -z "$CONTROLLER_USER" ] || [ -z "$CONTROLLER_PASS" ]; then
                 echo "ERROR: Missing controller credentials in Vault"
                 exit 1
+              fi
+              if [ -z "$SPACE_OWNER" ]; then
+                SPACE_OWNER="$CONTROLLER_USER"
               fi
 
               GH_USER_JSON="$(vault kv get -format=json secret/k8s-rules-engine-github-packages-username)"
@@ -116,7 +120,8 @@ spec:
                 --arg name "$SPACE_NAME" \
                 --arg desc "$SPACE_DESC" \
                 --arg gid "$DEFAULT_GROUP_ID" \
-                '{name:$name, description:$desc, defaultGroupId:$gid}')"
+                --arg owner "$SPACE_OWNER" \
+                '{name:$name, description:$desc, defaultGroupId:$gid, owner:$owner}')"
               SPACE_RESPONSE="$(mktemp)"
               SPACE_HEADERS="$(mktemp)"
               SPACE_CODE="$(curl -sS -D "$SPACE_HEADERS" -o "$SPACE_RESPONSE" -w '%{http_code}' \
