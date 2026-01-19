@@ -167,13 +167,32 @@ spec:
               echo
               if [ "$SERVERS_CODE" = "200" ]; then
                 if ! printf '%s' "$SERVERS_JSON" | jq -e --arg id "$KIE_SERVER_ID" '
-                  if type == "array" then
-                    .[] | select(.serverId == $id or .id == $id)
-                  elif type == "object" then
-                    (.servers // .items // .result // [])[] | select(.serverId == $id or .id == $id)
-                  else empty end' >/dev/null 2>&1; then
+                  def templates:
+                    if type=="object" then
+                      (.servers // .items // .result // .serverTemplate // .serverTemplates // .["server-template"] // [])
+                    else [] end;
+                  if type=="array" then
+                    any(.[]; (.serverId // .["server-id"] // .id // .["server_id"]) == $id)
+                  else
+                    any(templates[]; (.serverId // .["server-id"] // .id // .["server_id"]) == $id)
+                  end' >/dev/null 2>&1; then
                   echo "ERROR: KIE server id ${KIE_SERVER_ID} not registered with controller"
                   exit 1
+                fi
+                CONTAINER_STATUS_FOUND="$(printf '%s' "$SERVERS_JSON" | jq -r --arg id "$KIE_SERVER_ID" --arg cid "$CONTAINER_ID" '
+                  def templates:
+                    if type=="object" then
+                      (.servers // .items // .result // .serverTemplate // .serverTemplates // .["server-template"] // [])
+                    else [] end;
+                  [templates[] | select((.serverId // .["server-id"] // .id // .["server_id"]) == $id)
+                    | .["container-specs"][]?
+                    | select((.containerId // .["container-id"] // .id) == $cid)
+                    | .status][0] // empty' 2>/dev/null || true)"
+                if [ -n "$CONTAINER_STATUS_FOUND" ]; then
+                  echo "Container already registered with status: ${CONTAINER_STATUS_FOUND}"
+                  if [ "$CONTAINER_STATUS_FOUND" = "$CONTAINER_STATUS" ]; then
+                    exit 0
+                  fi
                 fi
               fi
 
