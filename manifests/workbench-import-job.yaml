@@ -239,8 +239,10 @@ spec:
                 --arg user "$GH_USER" \
                 --arg pass "$GH_TOKEN" \
                 '{name:$name, gitURL:$url, userName:$user, username:$user, password:$pass}')"
-              CLONE_CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+              CLONE_RESPONSE="$(mktemp)"
+              CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
                 -H "Authorization: Bearer ${TOKEN}" \
+                -H "Accept: application/json" \
                 -H "Content-Type: application/json" \
                 -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
                 -d "$CLONE_PAYLOAD" || true)"
@@ -248,5 +250,8 @@ spec:
                 echo "OK: Repo import requested: ${REPO_NAME}"
               else
                 echo "ERROR: Failed to import repo (HTTP ${CLONE_CODE})"
+                echo "Response body:"
+                cat "$CLONE_RESPONSE"
                 exit 1
               fi
+              rm -f "$CLONE_RESPONSE"
