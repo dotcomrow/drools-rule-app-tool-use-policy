@@ -172,13 +172,21 @@ spec:
                           *success*|*succeeded*|*done*|*finished*|*completed*)
                             break
                             ;;
-                          *fail*|*error*)
+                          *fail*|*error*|*bad_request*|*rejected*|*denied*)
                             echo "ERROR: Space job failed"
                             echo "$JOB_JSON"
                             exit 1
                             ;;
                         esac
+                      else
+                        echo "Job response (first 400 chars):"
+                        printf '%s' "$JOB_JSON" | head -c 400 || true
+                        echo
                       fi
+                    else
+                      echo "Job poll returned HTTP ${JOB_CODE}"
+                      printf '%s' "$JOB_JSON" | head -c 400 || true
+                      echo
                     fi
                     sleep 3
                   done
