@@ -143,7 +143,7 @@ spec:
                       -H "Authorization: Bearer ${TOKEN}" \
                       -H "Accept: application/json" \
                       "${cand}/${probe}" || true)"
-                    echo "Probe ${cand}/${probe} -> HTTP ${code}"
+                    echo "Probe ${cand}/${probe} -> HTTP ${code}" >&2
                     if [ "$code" != "404" ]; then
                       echo "$cand"
                       return
