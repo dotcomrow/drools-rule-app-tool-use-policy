@@ -112,7 +112,7 @@ spec:
                 -H "Accept: application/json" \
                 -H "Content-Type: application/json" \
                 -H "X-KIE-ContentType: JSON" \
-                -X PUT "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" \
+                -X POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers" \
                 --data-binary "${payload}" || true)"
               if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
                 echo "OK: Container registered"
