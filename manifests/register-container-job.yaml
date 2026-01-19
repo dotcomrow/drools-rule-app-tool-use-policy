@@ -155,6 +155,28 @@ spec:
               WORKBENCH_CONTROLLER_URL="$(resolve_controller "$WORKBENCH_CONTROLLER_URL")"
               echo "Using controller base: ${WORKBENCH_CONTROLLER_URL}"
 
+              echo "Checking controller server list..."
+              SERVERS_BODY="$(curl -sS -w '\n%{http_code}' \
+                -H "Authorization: Bearer ${TOKEN}" \
+                -H "Accept: application/json" \
+                "${WORKBENCH_CONTROLLER_URL}/management/servers" || true)"
+              SERVERS_JSON="$(printf '%s' "$SERVERS_BODY" | sed '$d')"
+              SERVERS_CODE="$(printf '%s' "$SERVERS_BODY" | tail -n 1)"
+              echo "Servers response HTTP ${SERVERS_CODE}"
+              printf '%s' "$SERVERS_JSON" | head -c 600 || true
+              echo
+              if [ "$SERVERS_CODE" = "200" ]; then
+                if ! printf '%s' "$SERVERS_JSON" | jq -e --arg id "$KIE_SERVER_ID" '
+                  if type == "array" then
+                    .[] | select(.serverId == $id or .id == $id)
+                  elif type == "object" then
+                    (.servers // .items // .result // [])[] | select(.serverId == $id or .id == $id)
+                  else empty end' >/dev/null 2>&1; then
+                  echo "ERROR: KIE server id ${KIE_SERVER_ID} not registered with controller"
+                  exit 1
+                fi
+              fi
+
               payload="$(jq -n \
                 --arg cid "$CONTAINER_ID" \
                 --arg gid "$GROUP_ID" \
@@ -224,6 +246,8 @@ spec:
                 echo "OK: Container already registered"
               else
                 echo "ERROR: Workbench controller returned HTTP ${HTTP_CODE}"
+                echo "Response headers:"
+                cat "$RESPONSE_HEADERS"
                 echo "Response body:"
                 cat "$RESPONSE_FILE"
                 rm -f "$RESPONSE_FILE" "$RESPONSE_HEADERS"
