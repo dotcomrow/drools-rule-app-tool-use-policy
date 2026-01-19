@@ -5,11 +5,12 @@
 
   <groupId>com.dotcomrow.rules</groupId>
   <artifactId>tool-use-policy</artifactId>
-  <version>1.0.0</version>
+  <version>${revision}</version>
   <packaging>kjar</packaging>
   <name>Tool Use Policy Rules</name>
 
   <properties>
+    <revision>1.0.0-SNAPSHOT</revision>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>11</maven.compiler.release>
     <drools.version>7.74.1.Final</drools.version>

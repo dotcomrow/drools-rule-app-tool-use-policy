@@ -16,6 +16,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          fetch-depth: 0
+
+      - name: Compute version
+        run: echo "REVISION=1.0.$(git rev-list --count HEAD)" >> $GITHUB_ENV
 
       - name: Set up Java
         uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e
@@ -27,6 +32,6 @@ jobs:
           server-password: GITHUB_TOKEN
 
       - name: Build and publish
-        run: mvn -B -ntp deploy
+        run: mvn -B -ntp -Drevision=$REVISION deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
