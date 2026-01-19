@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workbench-import-config-tool-use-policy
+  namespace: drools
+data:
+  WORKBENCH_BASE: "http://kie-workbench.drools.svc.cluster.local:8080/business-central"
+  SPACE_NAME: "rules"
+  SPACE_DESC: "Rules"
+  DEFAULT_GROUP_ID: "com.dotcomrow.rules"
+  REPO_NAME: "tool-use-policy"
+  REPO_URL: "https://github.com/dotcomrow/drools-rule-app-tool-use-policy.git"
