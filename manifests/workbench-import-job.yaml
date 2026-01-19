@@ -129,11 +129,59 @@ spec:
                 echo "OK: Space ready: ${SPACE_NAME}"
               elif [ "$SPACE_CODE" = "202" ]; then
                 echo "Space creation accepted; waiting for ${SPACE_NAME} to be ready..."
+                echo "Space create response headers:"
+                cat "$SPACE_HEADERS"
+                echo "Space create response body:"
+                cat "$SPACE_RESPONSE"
+                echo
                 READY_CODE=""
                 FOUND="false"
                 STEPS=$((SPACE_WAIT_SECONDS / 5))
                 if [ "$STEPS" -lt 12 ]; then
                   STEPS=12
+                fi
+                JOB_URL="$(awk -F': ' 'tolower($1)=="location"{print $2}' "$SPACE_HEADERS" | tr -d '\r')"
+                if [ -z "$JOB_URL" ]; then
+                  JOB_URL="$(jq -r '.location // .url // .href // empty' "$SPACE_RESPONSE" 2>/dev/null || true)"
+                fi
+                JOB_ID="$(jq -r '.jobId // .id // .job_id // .jobID // empty' "$SPACE_RESPONSE" 2>/dev/null || true)"
+                if [ -n "$JOB_URL" ]; then
+                  case "$JOB_URL" in
+                    http*) ;;
+                    /*) JOB_URL="${WORKBENCH_BASE%/}${JOB_URL}" ;;
+                    *) JOB_URL="${WORKBENCH_BASE%/}/$JOB_URL" ;;
+                  esac
+                elif [ -n "$JOB_ID" ]; then
+                  JOB_URL="${WORKBENCH_BASE%/}/rest/jobs/${JOB_ID}"
+                fi
+                if [ -n "$JOB_URL" ]; then
+                  echo "Polling space job: ${JOB_URL}"
+                  for i in $(seq 1 "$STEPS"); do
+                    JOB_BODY="$(curl -sS -w '\n%{http_code}' \
+                      -H "Authorization: Bearer ${TOKEN}" \
+                      -H "Accept: application/json" \
+                      "$JOB_URL" || true)"
+                    JOB_JSON="$(printf '%s' "$JOB_BODY" | sed '$d')"
+                    JOB_CODE="$(printf '%s' "$JOB_BODY" | tail -n 1)"
+                    if [ "$JOB_CODE" = "200" ]; then
+                      JOB_STATUS_RAW="$(printf '%s' "$JOB_JSON" | jq -r '.status // .state // .jobStatus // .result // empty' 2>/dev/null || true)"
+                      if [ -n "$JOB_STATUS_RAW" ]; then
+                        JOB_STATUS="$(printf '%s' "$JOB_STATUS_RAW" | tr '[:upper:]' '[:lower:]')"
+                        echo "Job status: ${JOB_STATUS_RAW}"
+                        case "$JOB_STATUS" in
+                          *success*|*succeeded*|*done*|*finished*|*completed*)
+                            break
+                            ;;
+                          *fail*|*error*)
+                            echo "ERROR: Space job failed"
+                            echo "$JOB_JSON"
+                            exit 1
+                            ;;
+                        esac
+                      fi
+                    fi
+                    sleep 3
+                  done
                 fi
                 for i in $(seq 1 "$STEPS"); do
                   LIST_BODY="$(curl -sS -w '\n%{http_code}' \
