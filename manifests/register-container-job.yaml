@@ -45,11 +45,14 @@ spec:
                 exit 1
               fi
 
-              echo "Vault login ok. Fetching Keycloak client credentials for KIE service account"
-              KC_CLIENT_ID_JSON="$(vault kv get -format=json secret/keycloak-client-id-drools-kie-server-service)"
+              echo "Vault login ok. Fetching Keycloak Workbench client and controller credentials"
+              KC_CLIENT_ID_JSON="$(vault kv get -format=json secret/keycloak-client-id-drools-workbench)"
               KC_CLIENT_ID="$(printf '%s' "$KC_CLIENT_ID_JSON" | jq -r '.data.data.value // .data.data.id // .data.data.client_id // empty')"
-              KC_CLIENT_SECRET_JSON="$(vault kv get -format=json secret/keycloak-client-secret-drools-kie-server-service)"
+              KC_CLIENT_SECRET_JSON="$(vault kv get -format=json secret/keycloak-client-secret-drools-workbench)"
               KC_CLIENT_SECRET="$(printf '%s' "$KC_CLIENT_SECRET_JSON" | jq -r '.data.data.value // .data.data.secret // .data.data.password // empty')"
+              CONTROLLER_JSON="$(vault kv get -format=json secret/drools/admin)"
+              CONTROLLER_USER="$(printf '%s' "$CONTROLLER_JSON" | jq -r '.data.data.username // empty')"
+              CONTROLLER_PASS="$(printf '%s' "$CONTROLLER_JSON" | jq -r '.data.data.password // empty')"
               if [ -n "$KC_CLIENT_ID" ]; then
                 echo "Keycloak client id: ${KC_CLIENT_ID}"
               else
@@ -60,17 +63,33 @@ spec:
               else
                 echo "Keycloak client secret missing"
               fi
+              if [ -n "$CONTROLLER_USER" ]; then
+                echo "Controller user: ${CONTROLLER_USER}"
+              else
+                echo "Controller user missing"
+              fi
+              if [ -n "$CONTROLLER_PASS" ]; then
+                echo "Controller password length: ${#CONTROLLER_PASS}"
+              else
+                echo "Controller password missing"
+              fi
               TOKEN=""
               if [ -z "$KC_CLIENT_ID" ] || [ -z "$KC_CLIENT_SECRET" ]; then
-                echo "ERROR: Missing Keycloak client credentials in Vault"
+                echo "ERROR: Missing Workbench Keycloak client credentials in Vault"
+                exit 1
+              fi
+              if [ -z "$CONTROLLER_USER" ] || [ -z "$CONTROLLER_PASS" ]; then
+                echo "ERROR: Missing controller credentials in Vault"
                 exit 1
               fi
               TOKEN_URL="https://auth.suncoast.systems/realms/internal/protocol/openid-connect/token"
               TOKEN_RESPONSE="$(curl -sS -w '\n%{http_code}' \
                 -H "Content-Type: application/x-www-form-urlencoded" \
-                --data-urlencode "grant_type=client_credentials" \
+                --data-urlencode "grant_type=password" \
                 --data-urlencode "client_id=${KC_CLIENT_ID}" \
                 --data-urlencode "client_secret=${KC_CLIENT_SECRET}" \
+                --data-urlencode "username=${CONTROLLER_USER}" \
+                --data-urlencode "password=${CONTROLLER_PASS}" \
                 "$TOKEN_URL" || true)"
               TOKEN_BODY="$(printf '%s' "$TOKEN_RESPONSE" | sed '$d')"
               TOKEN_CODE="$(printf '%s' "$TOKEN_RESPONSE" | tail -n 1)"
