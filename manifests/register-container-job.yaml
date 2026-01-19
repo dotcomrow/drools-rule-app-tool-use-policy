@@ -126,26 +126,56 @@ spec:
               echo "Registering container ${CONTAINER_ID} -> ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
               echo "Registering via bearer token"
               RESPONSE_FILE="$(mktemp)"
+              RESPONSE_HEADERS="$(mktemp)"
               register_request() {
                 method="$1"
                 url="$2"
-                curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" \
+                curl -sS -D "$RESPONSE_HEADERS" -o "$RESPONSE_FILE" -w "%{http_code}" \
                   -H "Authorization: Bearer ${TOKEN}" \
                   -H "Accept: application/json" \
                   -H "Content-Type: application/json" \
                   -H "X-KIE-ContentType: JSON" \
+                  -H "X-KIE-Server-Id: ${KIE_SERVER_ID}" \
+                  -H "KIE-Server-Id: ${KIE_SERVER_ID}" \
                   -X "$method" "$url" \
                   --data-binary "${payload}" || true
+              }
+              print_allow() {
+                url="$1"
+                echo "Allowed methods for ${url}:"
+                curl -sS -D - -o /dev/null -X OPTIONS \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Accept: application/json" \
+                  -H "X-KIE-Server-Id: ${KIE_SERVER_ID}" \
+                  -H "KIE-Server-Id: ${KIE_SERVER_ID}" \
+                  "$url" | awk -F': ' 'tolower($1)=="allow"{print $2}' | tr -d '\r' || true
               }
 
               HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
               if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
                 echo "Controller did not accept POST /containers/{id}; trying PUT /containers/{id}"
+                if [ "$HTTP_CODE" = "405" ]; then
+                  print_allow "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                fi
                 HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
               fi
               if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
                 echo "Controller did not accept PUT /containers/{id}; trying POST /containers"
+                if [ "$HTTP_CODE" = "405" ]; then
+                  print_allow "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                fi
                 HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers")"
+              fi
+              if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
+                echo "Controller did not accept /management endpoints; trying /server endpoints"
+                HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+              fi
+              if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
+                echo "Controller did not accept PUT /server/containers/{id}; trying POST /server/containers"
+                if [ "$HTTP_CODE" = "405" ]; then
+                  print_allow "${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                fi
+                HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers")"
               fi
               if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
                 echo "OK: Container registered"
@@ -155,10 +185,10 @@ spec:
                 echo "ERROR: Workbench controller returned HTTP ${HTTP_CODE}"
                 echo "Response body:"
                 cat "$RESPONSE_FILE"
-                rm -f "$RESPONSE_FILE"
+                rm -f "$RESPONSE_FILE" "$RESPONSE_HEADERS"
                 exit 1
               fi
-              rm -f "$RESPONSE_FILE"
+              rm -f "$RESPONSE_FILE" "$RESPONSE_HEADERS"
           resources:
             requests:
               cpu: "50m"
