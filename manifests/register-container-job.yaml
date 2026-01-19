@@ -107,13 +107,23 @@ spec:
               echo "Registering container ${CONTAINER_ID} -> ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
               echo "Registering via bearer token"
               RESPONSE_FILE="$(mktemp)"
-              HTTP_CODE="$(curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" \
-                -H "Authorization: Bearer ${TOKEN}" \
-                -H "Accept: application/json" \
-                -H "Content-Type: application/json" \
-                -H "X-KIE-ContentType: JSON" \
-                -X POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers" \
-                --data-binary "${payload}" || true)"
+              register_request() {
+                method="$1"
+                url="$2"
+                curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Accept: application/json" \
+                  -H "Content-Type: application/json" \
+                  -H "X-KIE-ContentType: JSON" \
+                  -X "$method" "$url" \
+                  --data-binary "${payload}" || true
+              }
+
+              HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+              if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
+                echo "Controller did not accept PUT /containers/{id}; trying POST /containers"
+                HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers")"
+              fi
               if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
                 echo "OK: Container registered"
               elif [ "$HTTP_CODE" = "409" ]; then
