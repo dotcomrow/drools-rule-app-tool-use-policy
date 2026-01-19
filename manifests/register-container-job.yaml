@@ -118,14 +118,11 @@ spec:
                 cand="$1"
                 [ -z "$cand" ] && return
                 cand="${cand%/}"
-                for existing in "${CANDIDATES[@]}"; do
-                  [ "$existing" = "$cand" ] && return
-                done
-                CANDIDATES+=("$cand")
+                CANDIDATES="${CANDIDATES} ${cand}"
               }
               resolve_controller() {
                 base="$1"
-                CANDIDATES=()
+                CANDIDATES=""
                 add_candidate "$base"
                 if ! printf '%s' "$base" | grep -q "/rest/controller$"; then
                   add_candidate "${base%/}/rest/controller"
@@ -140,7 +137,7 @@ spec:
                   base_root="${base%/business-central/rest/controller}"
                   add_candidate "${base_root%/}/rest/controller"
                 fi
-                for cand in "${CANDIDATES[@]}"; do
+                for cand in $CANDIDATES; do
                   for probe in "management/servers" "management/server-templates" "server"; do
                     code="$(curl -sS -o /dev/null -w '%{http_code}' \
                       -H "Authorization: Bearer ${TOKEN}" \
