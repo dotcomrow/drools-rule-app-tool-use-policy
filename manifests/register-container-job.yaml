@@ -138,7 +138,11 @@ spec:
                   --data-binary "${payload}" || true
               }
 
-              HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+              HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+              if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
+                echo "Controller did not accept POST /containers/{id}; trying PUT /containers/{id}"
+                HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+              fi
               if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
                 echo "Controller did not accept PUT /containers/{id}; trying POST /containers"
                 HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers")"
