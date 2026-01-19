@@ -100,11 +100,14 @@ spec:
 
               echo "Waiting for Workbench REST API..."
               CODE=""
+              SPACES_JSON=""
               for i in $(seq 1 60); do
-                CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+                SPACES_BODY="$(curl -sS -w '\n%{http_code}' \
                   -H "Authorization: Bearer ${TOKEN}" \
                   -H "Accept: application/json" \
                   "${WORKBENCH_BASE}/rest/spaces" || true)"
+                SPACES_JSON="$(printf '%s' "$SPACES_BODY" | sed '$d')"
+                CODE="$(printf '%s' "$SPACES_BODY" | tail -n 1)"
                 if [ "$CODE" = "200" ]; then
                   break
                 fi
@@ -122,14 +125,30 @@ spec:
                 --arg gid "$DEFAULT_GROUP_ID" \
                 --arg owner "$SPACE_OWNER" \
                 '{name:$name, description:$desc, defaultGroupId:$gid, owner:$owner}')"
+              SPACE_EXISTS="false"
+              if printf '%s' "$SPACES_JSON" | jq -e --arg name "$SPACE_NAME" '
+                if type == "array" then
+                  .[] | select(.name == $name)
+                elif type == "object" then
+                  (.spaces // .items // .result // [])[] | select(.name == $name)
+                else empty end' >/dev/null 2>&1; then
+                SPACE_EXISTS="true"
+              fi
+
               SPACE_RESPONSE="$(mktemp)"
               SPACE_HEADERS="$(mktemp)"
-              SPACE_CODE="$(curl -sS -D "$SPACE_HEADERS" -o "$SPACE_RESPONSE" -w '%{http_code}' \
-                -H "Authorization: Bearer ${TOKEN}" \
-                -H "Accept: application/json" \
-                -H "Content-Type: application/json" \
-                -X POST "${WORKBENCH_BASE}/rest/spaces" \
-                -d "$SPACE_PAYLOAD" || true)"
+              SPACE_CODE=""
+              if [ "$SPACE_EXISTS" = "true" ]; then
+                echo "OK: Space already exists: ${SPACE_NAME}"
+                SPACE_CODE="409"
+              else
+                SPACE_CODE="$(curl -sS -D "$SPACE_HEADERS" -o "$SPACE_RESPONSE" -w '%{http_code}' \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Accept: application/json" \
+                  -H "Content-Type: application/json" \
+                  -X POST "${WORKBENCH_BASE}/rest/spaces" \
+                  -d "$SPACE_PAYLOAD" || true)"
+              fi
               if [ "$SPACE_CODE" = "201" ] || [ "$SPACE_CODE" = "200" ] || [ "$SPACE_CODE" = "409" ]; then
                 echo "OK: Space ready: ${SPACE_NAME}"
               elif [ "$SPACE_CODE" = "202" ]; then
@@ -178,6 +197,10 @@ spec:
                             break
                             ;;
                           *fail*|*error*|*bad_request*|*rejected*|*denied*)
+                            if printf '%s' "$JOB_JSON" | jq -r '.result // empty' | rg -qi "already exists"; then
+                              echo "OK: Space already exists: ${SPACE_NAME}"
+                              break
+                            fi
                             echo "ERROR: Space job failed"
                             echo "$JOB_JSON"
                             exit 1
@@ -249,9 +272,54 @@ spec:
               if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ] || [ "$CLONE_CODE" = "409" ]; then
                 echo "OK: Repo import requested: ${REPO_NAME}"
               else
-                echo "ERROR: Failed to import repo (HTTP ${CLONE_CODE})"
-                echo "Response body:"
+                echo "Repo import failed (HTTP ${CLONE_CODE}); response body:"
                 cat "$CLONE_RESPONSE"
-                exit 1
+                echo
+                echo "Checking for existing project to pull latest..."
+                PROJECT_EXISTS="false"
+                PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Accept: application/json" \
+                  "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects" || true)"
+                PROJECT_JSON="$(printf '%s' "$PROJECT_BODY" | sed '$d')"
+                PROJECT_CODE="$(printf '%s' "$PROJECT_BODY" | tail -n 1)"
+                if [ "$PROJECT_CODE" = "200" ]; then
+                  if printf '%s' "$PROJECT_JSON" | jq -e --arg name "$REPO_NAME" '
+                    if type == "array" then
+                      .[] | select(.name == $name or .projectName == $name)
+                    elif type == "object" then
+                      (.projects // .items // .result // [])[] | select(.name == $name or .projectName == $name)
+                    else empty end' >/dev/null 2>&1; then
+                    PROJECT_EXISTS="true"
+                  fi
+                fi
+
+                if [ "$PROJECT_EXISTS" = "true" ]; then
+                  echo "Project exists; attempting git pull: ${REPO_NAME}"
+                  PULL_RESPONSE="$(mktemp)"
+                  PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Accept: application/json" \
+                    -H "Content-Type: application/json" \
+                    -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${REPO_NAME}/git/pull" || true)"
+                  if [ "$PULL_CODE" = "404" ] || [ "$PULL_CODE" = "405" ]; then
+                    PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
+                      -H "Authorization: Bearer ${TOKEN}" \
+                      -H "Accept: application/json" \
+                      -H "Content-Type: application/json" \
+                      -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${REPO_NAME}/git/pull" || true)"
+                  fi
+                  if [ "$PULL_CODE" = "200" ] || [ "$PULL_CODE" = "202" ] || [ "$PULL_CODE" = "204" ]; then
+                    echo "OK: Repo pull requested: ${REPO_NAME}"
+                  else
+                    echo "ERROR: Repo pull failed (HTTP ${PULL_CODE})"
+                    cat "$PULL_RESPONSE"
+                    exit 1
+                  fi
+                  rm -f "$PULL_RESPONSE"
+                else
+                  echo "ERROR: Failed to import repo and project not found in space"
+                  exit 1
+                fi
               fi
               rm -f "$CLONE_RESPONSE"
