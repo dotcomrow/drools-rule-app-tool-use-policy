@@ -40,6 +40,7 @@ spec:
               DEFAULT_GROUP_ID="${DEFAULT_GROUP_ID:-}"
               REPO_NAME="${REPO_NAME:-}"
               REPO_URL="${REPO_URL:-}"
+              SPACE_WAIT_SECONDS="${SPACE_WAIT_SECONDS:-300}"
               if [ -z "$WORKBENCH_BASE" ] || [ -z "$SPACE_NAME" ] || [ -z "$SPACE_DESC" ] || [ -z "$DEFAULT_GROUP_ID" ] || [ -z "$REPO_NAME" ] || [ -z "$REPO_URL" ]; then
                 echo "ERROR: Missing import config (WORKBENCH_BASE, SPACE_NAME, SPACE_DESC, DEFAULT_GROUP_ID, REPO_NAME, REPO_URL)"
                 exit 1
@@ -98,6 +99,7 @@ spec:
               for i in $(seq 1 60); do
                 CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
                   -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Accept: application/json" \
                   "${WORKBENCH_BASE}/rest/spaces" || true)"
                 if [ "$CODE" = "200" ]; then
                   break
@@ -115,8 +117,11 @@ spec:
                 --arg desc "$SPACE_DESC" \
                 --arg gid "$DEFAULT_GROUP_ID" \
                 '{name:$name, description:$desc, defaultGroupId:$gid}')"
-              SPACE_CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+              SPACE_RESPONSE="$(mktemp)"
+              SPACE_HEADERS="$(mktemp)"
+              SPACE_CODE="$(curl -sS -D "$SPACE_HEADERS" -o "$SPACE_RESPONSE" -w '%{http_code}' \
                 -H "Authorization: Bearer ${TOKEN}" \
+                -H "Accept: application/json" \
                 -H "Content-Type: application/json" \
                 -X POST "${WORKBENCH_BASE}/rest/spaces" \
                 -d "$SPACE_PAYLOAD" || true)"
@@ -126,14 +131,24 @@ spec:
                 echo "Space creation accepted; waiting for ${SPACE_NAME} to be ready..."
                 READY_CODE=""
                 FOUND="false"
-                for i in $(seq 1 30); do
+                STEPS=$((SPACE_WAIT_SECONDS / 5))
+                if [ "$STEPS" -lt 12 ]; then
+                  STEPS=12
+                fi
+                for i in $(seq 1 "$STEPS"); do
                   LIST_BODY="$(curl -sS -w '\n%{http_code}' \
                     -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Accept: application/json" \
                     "${WORKBENCH_BASE}/rest/spaces" || true)"
                   LIST_JSON="$(printf '%s' "$LIST_BODY" | sed '$d')"
                   READY_CODE="$(printf '%s' "$LIST_BODY" | tail -n 1)"
                   if [ "$READY_CODE" = "200" ]; then
-                    if printf '%s' "$LIST_JSON" | jq -e --arg name "$SPACE_NAME" '.[] | select(.name == $name)' >/dev/null 2>&1; then
+                    if printf '%s' "$LIST_JSON" | jq -e --arg name "$SPACE_NAME" '
+                      if type == "array" then
+                        .[] | select(.name == $name)
+                      elif type == "object" then
+                        (.spaces // .items // .result // [])[] | select(.name == $name)
+                      else empty end' >/dev/null 2>&1; then
                       FOUND="true"
                       break
                     fi
@@ -143,13 +158,19 @@ spec:
                 if [ "$FOUND" = "true" ]; then
                   echo "OK: Space ready: ${SPACE_NAME}"
                 else
+                  echo "Space list response (first 400 chars):"
+                  printf '%s' "$LIST_JSON" | head -c 400 || true
+                  echo
                   echo "ERROR: Space not ready after async create (last HTTP ${READY_CODE})"
                   exit 1
                 fi
               else
                 echo "ERROR: Failed to create space (HTTP ${SPACE_CODE})"
+                echo "Response body:"
+                cat "$SPACE_RESPONSE"
                 exit 1
               fi
+              rm -f "$SPACE_RESPONSE" "$SPACE_HEADERS"
 
               CLONE_PAYLOAD="$(jq -n \
                 --arg name "$REPO_NAME" \
