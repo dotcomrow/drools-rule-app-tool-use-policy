@@ -261,7 +261,7 @@ spec:
                 --arg url "$REPO_URL" \
                 --arg user "$GH_USER" \
                 --arg pass "$GH_TOKEN" \
-                '{name:$name, gitURL:$url, userName:$user, username:$user, password:$pass}')"
+                '{name:$name, gitURL:$url, userName:$user, password:$pass}')"
               CLONE_RESPONSE="$(mktemp)"
               CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
                 -H "Authorization: Bearer ${TOKEN}" \
