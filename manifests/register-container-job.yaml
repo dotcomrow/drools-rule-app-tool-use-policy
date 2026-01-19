@@ -114,6 +114,50 @@ spec:
               echo "KIE server id: ${KIE_SERVER_ID}"
               echo "Release: ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
 
+              add_candidate() {
+                cand="$1"
+                [ -z "$cand" ] && return
+                cand="${cand%/}"
+                for existing in "${CANDIDATES[@]}"; do
+                  [ "$existing" = "$cand" ] && return
+                done
+                CANDIDATES+=("$cand")
+              }
+              resolve_controller() {
+                base="$1"
+                CANDIDATES=()
+                add_candidate "$base"
+                if ! printf '%s' "$base" | grep -q "/rest/controller$"; then
+                  add_candidate "${base%/}/rest/controller"
+                fi
+                if printf '%s' "$base" | grep -q "/business-central/"; then
+                  base_root="${base%/business-central*}"
+                  add_candidate "${base_root%/}/rest/controller"
+                else
+                  add_candidate "${base%/}/business-central/rest/controller"
+                fi
+                if printf '%s' "$base" | grep -q "/business-central/rest/controller$"; then
+                  base_root="${base%/business-central/rest/controller}"
+                  add_candidate "${base_root%/}/rest/controller"
+                fi
+                for cand in "${CANDIDATES[@]}"; do
+                  for probe in "management/servers" "management/server-templates" "server"; do
+                    code="$(curl -sS -o /dev/null -w '%{http_code}' \
+                      -H "Authorization: Bearer ${TOKEN}" \
+                      -H "Accept: application/json" \
+                      "${cand}/${probe}" || true)"
+                    echo "Probe ${cand}/${probe} -> HTTP ${code}"
+                    if [ "$code" != "404" ]; then
+                      echo "$cand"
+                      return
+                    fi
+                  done
+                done
+                echo "$base"
+              }
+              WORKBENCH_CONTROLLER_URL="$(resolve_controller "$WORKBENCH_CONTROLLER_URL")"
+              echo "Using controller base: ${WORKBENCH_CONTROLLER_URL}"
+
               payload="$(jq -n \
                 --arg cid "$CONTAINER_ID" \
                 --arg gid "$GROUP_ID" \

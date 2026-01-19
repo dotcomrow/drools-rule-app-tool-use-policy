@@ -5,17 +5,15 @@ public class ToolUseRequest {
   private String userRole;
   private int riskScore;
   private double amount;
-  private int accountAgeDays;
 
   public ToolUseRequest() {
   }
 
-  public ToolUseRequest(String tool, String userRole, int riskScore, double amount, int accountAgeDays) {
+  public ToolUseRequest(String tool, String userRole, int riskScore, double amount) {
     this.tool = tool;
     this.userRole = userRole;
     this.riskScore = riskScore;
     this.amount = amount;
-    this.accountAgeDays = accountAgeDays;
   }
 
   public String getTool() {
@@ -48,13 +46,5 @@ public class ToolUseRequest {
 
   public void setAmount(double amount) {
     this.amount = amount;
-  }
-
-  public int getAccountAgeDays() {
-    return accountAgeDays;
-  }
-
-  public void setAccountAgeDays(int accountAgeDays) {
-    this.accountAgeDays = accountAgeDays;
   }
 }
