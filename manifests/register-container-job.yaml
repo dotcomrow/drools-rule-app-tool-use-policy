@@ -262,13 +262,28 @@ spec:
                 fi
               fi
 
+              CONTAINER_NAME="${CONTAINER_NAME:-$CONTAINER_ID}"
+              SERVER_TEMPLATE_NAME="$(printf '%s' "$SERVERS_JSON" | jq -r --arg id "$KIE_SERVER_ID" '
+                def templates:
+                  if type=="object" then
+                    (.servers // .items // .result // .serverTemplate // .serverTemplates // .["server-template"] // [])
+                  else [] end;
+                [templates[] | select((.serverId // .["server-id"] // .id // .["server_id"]) == $id)
+                  | (.serverName // .["server-name"] // .name)] | .[0] // empty' 2>/dev/null || true)"
+              if [ -z "$SERVER_TEMPLATE_NAME" ]; then
+                SERVER_TEMPLATE_NAME="$KIE_SERVER_ID"
+              fi
+
               payload="$(jq -n \
                 --arg cid "$CONTAINER_ID" \
+                --arg cname "$CONTAINER_NAME" \
                 --arg gid "$GROUP_ID" \
                 --arg aid "$ARTIFACT_ID" \
                 --arg ver "$VERSION" \
                 --arg status "$CONTAINER_STATUS" \
-                '{ "container-id": $cid, "release-id": { "group-id": $gid, "artifact-id": $aid, "version": $ver }, "status": $status }')"
+                --arg sid "$KIE_SERVER_ID" \
+                --arg sname "$SERVER_TEMPLATE_NAME" \
+                '{ "container-id": $cid, "container-name": $cname, "server-template-key": { "server-id": $sid, "server-name": $sname }, "release-id": { "group-id": $gid, "artifact-id": $aid, "version": $ver }, "status": $status }')"
               echo "Payload: ${payload}"
 
               echo "Registering container ${CONTAINER_ID} -> ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
@@ -300,55 +315,28 @@ spec:
               }
 
               register_container() {
-                HTTP_CODE=""
-                for attempt in \
-                  "POST ${WORKBENCH_CONTROLLER_URL}/management/server-templates/${KIE_SERVER_ID}/containers" \
-                  "POST ${WORKBENCH_CONTROLLER_URL}/management/server-templates/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" \
-                  "PUT ${WORKBENCH_CONTROLLER_URL}/management/server-templates/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" \
-                  "POST ${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers" \
-                  "PUT ${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" \
-                  "POST ${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" \
-                  "PUT ${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" \
-                  "POST ${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers"
-                do
-                  method="${attempt%% *}"
-                  url="${attempt#* }"
-                  HTTP_CODE="$(register_request "$method" "$url")"
-                  case "$HTTP_CODE" in
-                    2??|409)
-                      echo "$HTTP_CODE"
-                      return 0
-                      ;;
-                    405)
-                      echo "Controller did not accept ${method} ${url}; trying next" >&2
-                      print_allow "$url"
-                      ;;
-                    *)
-                      echo "Controller ${method} ${url} returned HTTP ${HTTP_CODE}; trying next" >&2
-                      ;;
-                  esac
-                done
+                HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+                if [ "$HTTP_CODE" = "405" ]; then
+                  echo "Controller did not accept PUT /management/servers/.../containers/{id}; trying POST" >&2
+                  print_allow "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                  HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+                fi
                 echo "$HTTP_CODE"
               }
 
               delete_container_spec() {
-                for url in \
-                  "${WORKBENCH_CONTROLLER_URL}/management/server-templates/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" \
-                  "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" \
-                  "${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
-                do
-                  code="$(curl -sS -o /dev/null -w '%{http_code}' \
-                    -H "Authorization: Bearer ${TOKEN}" \
-                    -H "Accept: application/json" \
-                    -H "X-KIE-ContentType: JSON" \
-                    -H "X-KIE-Server-Id: ${KIE_SERVER_ID}" \
-                    -H "KIE-Server-Id: ${KIE_SERVER_ID}" \
-                    -X DELETE "$url" || true)"
-                  echo "Delete ${url} -> HTTP ${code}" >&2
-                  case "$code" in
-                    200|204|404) return 0 ;;
-                  esac
-                done
+                url="${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                code="$(curl -sS -o /dev/null -w '%{http_code}' \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Accept: application/json" \
+                  -H "X-KIE-ContentType: JSON" \
+                  -H "X-KIE-Server-Id: ${KIE_SERVER_ID}" \
+                  -H "KIE-Server-Id: ${KIE_SERVER_ID}" \
+                  -X DELETE "$url" || true)"
+                echo "Delete ${url} -> HTTP ${code}" >&2
+                case "$code" in
+                  200|204|404) return 0 ;;
+                esac
                 return 1
               }
 
