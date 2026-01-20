@@ -240,11 +240,25 @@ spec:
                     | .["container-specs"][]?
                     | select((.containerId // .["container-id"] // .id) == $cid)
                     | .status][0] // empty' 2>/dev/null || true)"
+                CONTAINER_VERSION_FOUND="$(printf '%s' "$SERVERS_JSON" | jq -r --arg id "$KIE_SERVER_ID" --arg cid "$CONTAINER_ID" '
+                  def templates:
+                    if type=="object" then
+                      (.servers // .items // .result // .serverTemplate // .serverTemplates // .["server-template"] // [])
+                    else [] end;
+                  [templates[] | select((.serverId // .["server-id"] // .id // .["server_id"]) == $id)
+                    | .["container-specs"][]?
+                    | select((.containerId // .["container-id"] // .id) == $cid)
+                    | .["release-id"].version][0] // empty' 2>/dev/null || true)"
                 if [ -n "$CONTAINER_STATUS_FOUND" ]; then
-                  echo "Container already registered with status: ${CONTAINER_STATUS_FOUND}"
-                  if [ "$CONTAINER_STATUS_FOUND" = "$CONTAINER_STATUS" ]; then
+                  if [ -n "$CONTAINER_VERSION_FOUND" ]; then
+                    echo "Container already registered with status: ${CONTAINER_STATUS_FOUND}, version: ${CONTAINER_VERSION_FOUND}"
+                  else
+                    echo "Container already registered with status: ${CONTAINER_STATUS_FOUND}"
+                  fi
+                  if [ "$CONTAINER_STATUS_FOUND" = "$CONTAINER_STATUS" ] && [ "$CONTAINER_VERSION_FOUND" = "$VERSION" ]; then
                     exit 0
                   fi
+                  echo "Container version/status differs; updating registration."
                 fi
               fi
 
