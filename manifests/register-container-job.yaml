@@ -308,6 +308,19 @@ spec:
                   '{ "container-id": $cid, "container-name": $cname, "server-template-key": { "server-id": $sid, "server-name": $sname }, "release-id": { "group-id": $gid, "artifact-id": $aid, "version": $ver }, "status": $status, "configuration": {} }')"
                 echo "Using generated container spec payload"
               fi
+
+              payload="$(printf '%s' "$payload" | jq -c \
+                --arg cname "$CONTAINER_NAME" \
+                --arg sid "$KIE_SERVER_ID" \
+                --arg sname "$SERVER_TEMPLATE_NAME" '
+                if has("container-spec") then
+                  .["container-spec"]["container-name"] = $cname
+                  | .["container-spec"]["server-template-key"] = {"server-id": $sid, "server-name": $sname}
+                else
+                  .["container-name"] = $cname
+                  | .["server-template-key"] = {"server-id": $sid, "server-name": $sname}
+                end
+              ')"
               echo "Payload: ${payload}"
 
               echo "Registering container ${CONTAINER_ID} -> ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
