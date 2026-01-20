@@ -274,16 +274,40 @@ spec:
                 SERVER_TEMPLATE_NAME="$KIE_SERVER_ID"
               fi
 
-              payload="$(jq -n \
-                --arg cid "$CONTAINER_ID" \
-                --arg cname "$CONTAINER_NAME" \
-                --arg gid "$GROUP_ID" \
-                --arg aid "$ARTIFACT_ID" \
-                --arg ver "$VERSION" \
-                --arg status "$CONTAINER_STATUS" \
-                --arg sid "$KIE_SERVER_ID" \
-                --arg sname "$SERVER_TEMPLATE_NAME" \
-                '{ "container-id": $cid, "container-name": $cname, "server-template-key": { "server-id": $sid, "server-name": $sname }, "release-id": { "group-id": $gid, "artifact-id": $aid, "version": $ver }, "status": $status }')"
+              CONTAINER_ENDPOINT="${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+              EXISTING_SPEC_BODY="$(curl -sS -w '\n%{http_code}' \
+                -H "Authorization: Bearer ${TOKEN}" \
+                -H "Accept: application/json" \
+                "$CONTAINER_ENDPOINT" || true)"
+              EXISTING_SPEC_JSON="$(printf '%s' "$EXISTING_SPEC_BODY" | sed '$d')"
+              EXISTING_SPEC_CODE="$(printf '%s' "$EXISTING_SPEC_BODY" | tail -n 1)"
+
+              if [ "$EXISTING_SPEC_CODE" = "200" ] && [ -n "$EXISTING_SPEC_JSON" ]; then
+                if printf '%s' "$EXISTING_SPEC_JSON" | jq -e 'has("container-spec")' >/dev/null 2>&1; then
+                  payload="$(printf '%s' "$EXISTING_SPEC_JSON" | jq -c --arg ver "$VERSION" --arg status "$CONTAINER_STATUS" '
+                    .["container-spec"]["release-id"].version = $ver
+                    | .["container-spec"].status = $status
+                  ')"
+                else
+                  payload="$(printf '%s' "$EXISTING_SPEC_JSON" | jq -c --arg ver "$VERSION" --arg status "$CONTAINER_STATUS" '
+                    .["release-id"].version = $ver
+                    | .status = $status
+                  ')"
+                fi
+                echo "Using existing container spec from controller"
+              else
+                payload="$(jq -n \
+                  --arg cid "$CONTAINER_ID" \
+                  --arg cname "$CONTAINER_NAME" \
+                  --arg gid "$GROUP_ID" \
+                  --arg aid "$ARTIFACT_ID" \
+                  --arg ver "$VERSION" \
+                  --arg status "$CONTAINER_STATUS" \
+                  --arg sid "$KIE_SERVER_ID" \
+                  --arg sname "$SERVER_TEMPLATE_NAME" \
+                  '{ "container-id": $cid, "container-name": $cname, "server-template-key": { "server-id": $sid, "server-name": $sname }, "release-id": { "group-id": $gid, "artifact-id": $aid, "version": $ver }, "status": $status, "configuration": {} }')"
+                echo "Using generated container spec payload"
+              fi
               echo "Payload: ${payload}"
 
               echo "Registering container ${CONTAINER_ID} -> ${GROUP_ID}:${ARTIFACT_ID}:${VERSION}"
