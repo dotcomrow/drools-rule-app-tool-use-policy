@@ -53,13 +53,14 @@ jobs:
             raise SystemExit("VERSION not set")
 
           updates = {
-            Path("manifests/register-container-config.yaml"): r'^(\\s*VERSION:\\s*).*$',
-            Path("manifests/register-container-job.yaml"): r'^(\\s*rules\\.dotcomrow/container-version:\\s*).*$',
-            Path("manifests/workbench-import-job.yaml"): r'^(\\s*rules\\.dotcomrow/repo-version:\\s*).*$',
+            Path("manifests/register-container-config.yaml"): r'^(\s*VERSION:\s*).*$',
+            Path("manifests/register-container-job.yaml"): r'^(\s*rules\.dotcomrow/container-version:\s*).*$',
+            Path("manifests/workbench-import-job.yaml"): r'^(\s*rules\.dotcomrow/repo-version:\s*).*$',
           }
           for path, pattern in updates.items():
             text = path.read_text()
-            new_text, count = re.subn(pattern, r'\\1"{0}"'.format(version), text, flags=re.MULTILINE)
+            replacement = r'\g<1>"{0}"'.format(version)
+            new_text, count = re.subn(pattern, replacement, text, flags=re.MULTILINE)
             if count == 0:
               raise SystemExit(f"Pattern not found in {path}")
             if new_text != text:
