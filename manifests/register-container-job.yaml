@@ -352,11 +352,11 @@ spec:
               }
 
               register_container() {
-                HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+                HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
                 if [ "$HTTP_CODE" = "405" ]; then
-                  echo "Controller did not accept PUT /management/servers/.../containers/{id}; trying POST" >&2
+                  echo "Controller did not accept POST /management/servers/.../containers/{id}; trying PUT" >&2
                   print_allow "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
-                  HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+                  HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
                 fi
                 echo "$HTTP_CODE"
               }
@@ -396,6 +396,26 @@ spec:
                 cat "$RESPONSE_FILE"
                 rm -f "$RESPONSE_FILE" "$RESPONSE_HEADERS"
                 exit 1
+              fi
+
+              VERIFY_BODY="$(curl -sS -w '\n%{http_code}' \
+                -H "Authorization: Bearer ${TOKEN}" \
+                -H "Accept: application/json" \
+                "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" || true)"
+              VERIFY_JSON="$(printf '%s' "$VERIFY_BODY" | sed '$d')"
+              VERIFY_CODE="$(printf '%s' "$VERIFY_BODY" | tail -n 1)"
+              if [ "$VERIFY_CODE" = "200" ]; then
+                VERIFY_VERSION="$(printf '%s' "$VERIFY_JSON" | jq -r '.["release-id"].version // .["container-spec"]["release-id"].version // empty' 2>/dev/null || true)"
+                if [ -n "$VERIFY_VERSION" ]; then
+                  echo "Controller reports container version: ${VERIFY_VERSION}"
+                fi
+                if [ "$VERIFY_VERSION" != "$VERSION" ]; then
+                  echo "ERROR: Controller version ${VERIFY_VERSION} does not match expected ${VERSION}"
+                  rm -f "$RESPONSE_FILE" "$RESPONSE_HEADERS"
+                  exit 1
+                fi
+              else
+                echo "WARNING: Could not verify container spec (HTTP ${VERIFY_CODE})" >&2
               fi
               rm -f "$RESPONSE_FILE" "$RESPONSE_HEADERS"
           resources:
