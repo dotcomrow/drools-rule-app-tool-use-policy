@@ -156,13 +156,64 @@ spec:
               WORKBENCH_CONTROLLER_URL="$(resolve_controller "$WORKBENCH_CONTROLLER_URL")"
               echo "Using controller base: ${WORKBENCH_CONTROLLER_URL}"
 
+              CONTROLLER_WAIT_SECONDS="${CONTROLLER_WAIT_SECONDS:-900}"
+              CONTROLLER_WAIT_INTERVAL="${CONTROLLER_WAIT_INTERVAL:-5}"
+              KIE_SERVER_WAIT_SECONDS="${KIE_SERVER_WAIT_SECONDS:-900}"
+              KIE_SERVER_WAIT_INTERVAL="${KIE_SERVER_WAIT_INTERVAL:-5}"
+
+              fetch_servers() {
+                SERVERS_BODY="$(curl -sS -w '\n%{http_code}' \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Accept: application/json" \
+                  "${WORKBENCH_CONTROLLER_URL}/management/servers" || true)"
+                SERVERS_JSON="$(printf '%s' "$SERVERS_BODY" | sed '$d')"
+                SERVERS_CODE="$(printf '%s' "$SERVERS_BODY" | tail -n 1)"
+              }
+
+              echo "Waiting for Workbench controller..."
+              WAIT_START="$(date +%s)"
+              while true; do
+                fetch_servers
+                if [ "$SERVERS_CODE" = "200" ]; then
+                  echo "Controller ready (HTTP ${SERVERS_CODE})"
+                  break
+                fi
+                now="$(date +%s)"
+                if [ $((now - WAIT_START)) -ge "$CONTROLLER_WAIT_SECONDS" ]; then
+                  echo "ERROR: Controller not ready after ${CONTROLLER_WAIT_SECONDS}s (last HTTP ${SERVERS_CODE})"
+                  exit 1
+                fi
+                echo "Controller not ready (HTTP ${SERVERS_CODE}); retrying in ${CONTROLLER_WAIT_INTERVAL}s..."
+                sleep "$CONTROLLER_WAIT_INTERVAL"
+              done
+
+              echo "Waiting for KIE server registration..."
+              WAIT_START="$(date +%s)"
+              while true; do
+                fetch_servers
+                if [ "$SERVERS_CODE" = "200" ] && printf '%s' "$SERVERS_JSON" | jq -e --arg id "$KIE_SERVER_ID" '
+                  def templates:
+                    if type=="object" then
+                      (.servers // .items // .result // .serverTemplate // .serverTemplates // .["server-template"] // [])
+                    else [] end;
+                  if type=="array" then
+                    any(.[]; (.serverId // .["server-id"] // .id // .["server_id"]) == $id)
+                  else
+                    any(templates[]; (.serverId // .["server-id"] // .id // .["server_id"]) == $id)
+                  end' >/dev/null 2>&1; then
+                  echo "KIE server ${KIE_SERVER_ID} registered"
+                  break
+                fi
+                now="$(date +%s)"
+                if [ $((now - WAIT_START)) -ge "$KIE_SERVER_WAIT_SECONDS" ]; then
+                  echo "ERROR: KIE server ${KIE_SERVER_ID} not registered after ${KIE_SERVER_WAIT_SECONDS}s (last HTTP ${SERVERS_CODE})"
+                  exit 1
+                fi
+                echo "KIE server not registered yet (HTTP ${SERVERS_CODE}); retrying in ${KIE_SERVER_WAIT_INTERVAL}s..."
+                sleep "$KIE_SERVER_WAIT_INTERVAL"
+              done
+
               echo "Checking controller server list..."
-              SERVERS_BODY="$(curl -sS -w '\n%{http_code}' \
-                -H "Authorization: Bearer ${TOKEN}" \
-                -H "Accept: application/json" \
-                "${WORKBENCH_CONTROLLER_URL}/management/servers" || true)"
-              SERVERS_JSON="$(printf '%s' "$SERVERS_BODY" | sed '$d')"
-              SERVERS_CODE="$(printf '%s' "$SERVERS_BODY" | tail -n 1)"
               echo "Servers response HTTP ${SERVERS_CODE}"
               printf '%s' "$SERVERS_JSON" | head -c 600 || true
               echo
