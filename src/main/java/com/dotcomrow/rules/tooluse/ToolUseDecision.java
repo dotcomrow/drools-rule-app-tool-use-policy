@@ -1,5 +1,13 @@
 package com.dotcomrow.rules.tooluse;
 
+import javax.xml.bind.annotation.XmlAccessType;
+import javax.xml.bind.annotation.XmlAccessorType;
+import javax.xml.bind.annotation.XmlRootElement;
+import javax.xml.bind.annotation.XmlType;
+
+@XmlRootElement(name = "ToolUseDecision")
+@XmlAccessorType(XmlAccessType.FIELD)
+@XmlType(name = "ToolUseDecision")
 public class ToolUseDecision {
   private String decision;
   private String reason;
