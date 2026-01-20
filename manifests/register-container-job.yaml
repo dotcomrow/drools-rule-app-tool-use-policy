@@ -299,32 +299,82 @@ spec:
                   "$url" | awk -F': ' 'tolower($1)=="allow"{print $2}' | tr -d '\r' || true
               }
 
-              HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
-              if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
-                echo "Controller did not accept POST /containers/{id}; trying PUT /containers/{id}"
-                if [ "$HTTP_CODE" = "405" ]; then
-                  print_allow "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+              register_container() {
+                HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/server-templates/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+                if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
+                  echo "Controller did not accept POST /server-templates/.../containers/{id}; trying PUT"
+                  if [ "$HTTP_CODE" = "405" ]; then
+                    print_allow "${WORKBENCH_CONTROLLER_URL}/management/server-templates/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                  fi
+                  HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/management/server-templates/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
                 fi
-                HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
-              fi
-              if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
-                echo "Controller did not accept PUT /containers/{id}; trying POST /containers"
-                if [ "$HTTP_CODE" = "405" ]; then
-                  print_allow "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
+                  echo "Controller did not accept PUT /server-templates/.../containers/{id}; trying POST /containers"
+                  if [ "$HTTP_CODE" = "405" ]; then
+                    print_allow "${WORKBENCH_CONTROLLER_URL}/management/server-templates/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                  fi
+                  HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/server-templates/${KIE_SERVER_ID}/containers")"
                 fi
-                HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers")"
-              fi
-              if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
-                echo "Controller did not accept /management endpoints; trying /server endpoints"
-                HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
-              fi
-              if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
-                echo "Controller did not accept PUT /server/containers/{id}; trying POST /server/containers"
-                if [ "$HTTP_CODE" = "405" ]; then
-                  print_allow "${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
+                  echo "Controller did not accept /server-templates endpoints; trying /management/servers"
+                  HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
                 fi
-                HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers")"
+                if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
+                  echo "Controller did not accept POST /management/servers/.../containers/{id}; trying PUT"
+                  if [ "$HTTP_CODE" = "405" ]; then
+                    print_allow "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                  fi
+                  HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+                fi
+                if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
+                  echo "Controller did not accept PUT /management/servers/.../containers/{id}; trying POST /containers"
+                  if [ "$HTTP_CODE" = "405" ]; then
+                    print_allow "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                  fi
+                  HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers")"
+                fi
+                if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
+                  echo "Controller did not accept /management endpoints; trying /server endpoints"
+                  HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
+                fi
+                if [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "405" ]; then
+                  echo "Controller did not accept PUT /server/containers/{id}; trying POST /server/containers"
+                  if [ "$HTTP_CODE" = "405" ]; then
+                    print_allow "${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                  fi
+                  HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers")"
+                fi
+                echo "$HTTP_CODE"
+              }
+
+              delete_container_spec() {
+                for url in \
+                  "${WORKBENCH_CONTROLLER_URL}/management/server-templates/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" \
+                  "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" \
+                  "${WORKBENCH_CONTROLLER_URL}/server/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                do
+                  code="$(curl -sS -o /dev/null -w '%{http_code}' \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Accept: application/json" \
+                    -H "X-KIE-ContentType: JSON" \
+                    -H "X-KIE-Server-Id: ${KIE_SERVER_ID}" \
+                    -H "KIE-Server-Id: ${KIE_SERVER_ID}" \
+                    -X DELETE "$url" || true)"
+                  echo "Delete ${url} -> HTTP ${code}"
+                  case "$code" in
+                    200|204|404) return 0 ;;
+                  esac
+                done
+                return 1
+              }
+
+              HTTP_CODE="$(register_container)"
+              if [ "$HTTP_CODE" = "500" ]; then
+                echo "Controller returned HTTP 500; attempting delete + recreate"
+                delete_container_spec || echo "Warning: delete container spec did not succeed"
+                HTTP_CODE="$(register_container)"
               fi
+
               if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
                 echo "OK: Container registered"
               elif [ "$HTTP_CODE" = "409" ]; then
