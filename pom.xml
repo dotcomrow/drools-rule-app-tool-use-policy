@@ -14,7 +14,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>11</maven.compiler.release>
     <drools.version>7.74.1.Final</drools.version>
-    <junit.version>5.10.2</junit.version>
+    <junit.version>4.13.2</junit.version>
   </properties>
 
   <dependencyManagement>
@@ -62,8 +62,8 @@
     </dependency>
 
     <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter</artifactId>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
       <version>${junit.version}</version>
       <scope>test</scope>
     </dependency>

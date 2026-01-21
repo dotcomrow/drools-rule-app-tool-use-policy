@@ -1,30 +1,30 @@
 package com.dotcomrow.rules.tooluse;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 import java.util.Collection;
 import java.util.List;
-import org.junit.jupiter.api.Test;
+import org.junit.Test;
 import org.kie.api.KieServices;
 import org.kie.api.runtime.KieContainer;
 import org.kie.api.runtime.KieSession;
 
 public class ToolUseRulesTest {
   @Test
-  void deniesDestructiveToolForGuest() {
+  public void deniesDestructiveToolForGuest() {
     ToolUseDecision decision = evaluate(new ToolUseRequest("refund", "guest", 30, 10.0));
     assertEquals("DENY", decision.getDecision());
   }
 
   @Test
-  void reviewsHighAmount() {
+  public void reviewsHighAmount() {
     ToolUseDecision decision = evaluate(new ToolUseRequest("lookup", "member", 10, 250.0));
     assertEquals("REVIEW", decision.getDecision());
   }
 
   @Test
-  void allowsLowRisk() {
+  public void allowsLowRisk() {
     ToolUseDecision decision = evaluate(new ToolUseRequest("lookup", "member", 10, 25.0));
     assertEquals("ALLOW", decision.getDecision());
   }
