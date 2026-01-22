@@ -270,14 +270,20 @@ spec:
                 -H "Content-Type: application/json" \
                 -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
                 -d "$CLONE_PAYLOAD" || true)"
-              if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ] || [ "$CLONE_CODE" = "409" ]; then
+              NEED_PULL="false"
+              PROJECT_EXISTS="false"
+              if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
                 echo "OK: Repo import requested: ${REPO_NAME}"
+              elif [ "$CLONE_CODE" = "409" ]; then
+                echo "Repo already exists; pulling latest: ${REPO_NAME}"
+                NEED_PULL="true"
+                PROJECT_EXISTS="true"
               else
                 echo "Repo import failed (HTTP ${CLONE_CODE}); response body:"
                 cat "$CLONE_RESPONSE"
                 echo
                 echo "Checking for existing project to pull latest..."
-                PROJECT_EXISTS="false"
+                NEED_PULL="true"
                 PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
                   -H "Authorization: Bearer ${TOKEN}" \
                   -H "Accept: application/json" \
@@ -294,7 +300,9 @@ spec:
                     PROJECT_EXISTS="true"
                   fi
                 fi
+              fi
 
+              if [ "$NEED_PULL" = "true" ]; then
                 if [ "$PROJECT_EXISTS" = "true" ]; then
                   echo "Project exists; attempting git pull: ${REPO_NAME}"
                   PULL_RESPONSE="$(mktemp)"
