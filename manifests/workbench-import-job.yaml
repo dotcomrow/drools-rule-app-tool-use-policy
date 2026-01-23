@@ -78,6 +78,7 @@ spec:
                 PROJECT_EXISTS="false"
                 PROJECT_ID="$REPO_NAME"
                 PROJECT_SLUGS=""
+                PROJECT_MAX_NUM="-1"
                 PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
                   -H "Authorization: Bearer ${TOKEN}" \
                   -H "Accept: application/json" \
@@ -85,43 +86,38 @@ spec:
                 PROJECT_JSON="$(printf '%s' "$PROJECT_BODY" | sed '$d')"
                 PROJECT_CODE="$(printf '%s' "$PROJECT_BODY" | tail -n 1)"
                 if [ "$PROJECT_CODE" = "200" ]; then
-                  PROJECT_SLUGS="$(printf '%s' "$PROJECT_JSON" | jq -r --arg repo "$REPO_NAME" '
+                  PROJECT_URIS="$(printf '%s' "$PROJECT_JSON" | jq -r '
                     def items:
                       if type == "array" then .
                       elif type == "object" then (.projects // .items // .result // [])
                       else [] end;
                     items
-                    | map(.publicURIs // [])
-                    | add
-                    | map(.uri // empty)
-                    | map(select(test(\"/git/[^/]+/\" + $repo)))
-                    | map(sub(\"^.*/git/[^/]+/\"; \"\"))
-                    | unique
-                    | .[]
+                    | .[]?
+                    | (.publicURIs // [])[]?
+                    | .uri // empty
                   ' 2>/dev/null || true)"
+                  if [ -n "$PROJECT_URIS" ]; then
+                    PROJECT_SLUGS="$(printf '%s\n' "$PROJECT_URIS" | sed -n "s#^.*/git/[^/]*/\\(${REPO_NAME}[^/]*\\)$#\\1#p" | sort -u)"
+                  fi
                   if [ -n "$PROJECT_SLUGS" ]; then
-                    PROJECT_ID="$(printf '%s' "$PROJECT_JSON" | jq -r --arg repo "$REPO_NAME" '
-                      def items:
-                        if type == "array" then .
-                        elif type == "object" then (.projects // .items // .result // [])
-                        else [] end;
-                      (items
-                        | map(.publicURIs // [])
-                        | add
-                        | map(.uri // empty)
-                        | map(select(test(\"/git/[^/]+/\" + $repo)))
-                        | map(sub(\"^.*/git/[^/]+/\"; \"\"))
-                        | unique) as $slugs
-                      | if ($slugs|length) == 0 then empty
-                        else
-                          ($slugs
-                            | map({slug:., n: (capture($repo + \"-(?<n>[0-9]+)$\")?.n // \"0\") | tonumber})
-                            | sort_by(.n)
-                            | last
-                            | .slug)
-                        end
-                    ' 2>/dev/null || true)"
-                    [ -z "$PROJECT_ID" ] && PROJECT_ID="$REPO_NAME"
+                    for slug in $PROJECT_SLUGS; do
+                      case "$slug" in
+                        "$REPO_NAME"-*)
+                          num="${slug#$REPO_NAME-}"
+                          if printf '%s' "$num" | grep -Eq '^[0-9]+$'; then
+                            if [ "$num" -gt "$PROJECT_MAX_NUM" ]; then
+                              PROJECT_MAX_NUM="$num"
+                              PROJECT_ID="$slug"
+                            fi
+                          fi
+                          ;;
+                        "$REPO_NAME")
+                          if [ "$PROJECT_MAX_NUM" -lt 0 ]; then
+                            PROJECT_ID="$slug"
+                          fi
+                          ;;
+                      esac
+                    done
                     PROJECT_EXISTS="true"
                   fi
                 fi
