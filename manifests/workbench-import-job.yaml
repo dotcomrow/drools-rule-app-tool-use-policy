@@ -47,6 +47,29 @@ spec:
               }
               trap hold_on_error EXIT
 
+              cleanup_duplicate_repos() {
+                if [ -z "${NIOGIT_ROOT:-}" ] || [ -z "${SPACE_NAME:-}" ] || [ -z "${REPO_NAME:-}" ]; then
+                  return 0
+                fi
+                if [ ! -d "${NIOGIT_ROOT}/${SPACE_NAME}" ]; then
+                  echo "WARN: NIOGIT space directory not found: ${NIOGIT_ROOT}/${SPACE_NAME}"
+                  return 0
+                fi
+                for dup in $(find "${NIOGIT_ROOT}/${SPACE_NAME}" -maxdepth 1 -type d -name "${REPO_NAME}-*.git" 2>/dev/null || true); do
+                  [ -d "$dup" ] || continue
+                  base="$(basename "$dup")"
+                  suffix="${base#${REPO_NAME}-}"
+                  suffix="${suffix%.git}"
+                  if printf '%s' "$suffix" | grep -Eq '^[0-9]+$'; then
+                    if rm -rf "$dup"; then
+                      echo "Removed duplicate repo dir: ${dup}"
+                    else
+                      echo "WARN: Failed to remove duplicate repo dir: ${dup}"
+                    fi
+                  fi
+                done
+              }
+
               apk add --no-cache curl jq
               export VAULT_ADDR="http://vault.vault.svc.cluster.local:8200"
 
@@ -279,27 +302,10 @@ spec:
 
               NIOGIT_ROOT="/niogit/.niogit"
               NIOGIT_CANONICAL="false"
-              if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}" ]; then
-                if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git" ]; then
-                  NIOGIT_CANONICAL="true"
-                fi
-                DUP_DIRS="$(find "${NIOGIT_ROOT}/${SPACE_NAME}" -maxdepth 1 -type d -name "${REPO_NAME}-*.git" 2>/dev/null || true)"
-                for dup in $DUP_DIRS; do
-                  [ -d "$dup" ] || continue
-                  base="$(basename "$dup")"
-                  suffix="${base#${REPO_NAME}-}"
-                  suffix="${suffix%.git}"
-                  if printf '%s' "$suffix" | grep -Eq '^[0-9]+$'; then
-                    if rm -rf "$dup"; then
-                      echo "Removed duplicate repo dir: ${dup}"
-                    else
-                      echo "WARN: Failed to remove duplicate repo dir: ${dup}"
-                    fi
-                  fi
-                done
-              else
-                echo "WARN: NIOGIT space directory not found: ${NIOGIT_ROOT}/${SPACE_NAME}"
+              if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git" ]; then
+                NIOGIT_CANONICAL="true"
               fi
+              cleanup_duplicate_repos
 
               PROJECT_EXISTS="false"
               PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
@@ -466,20 +472,19 @@ spec:
                 fi
               fi
 
-              if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}" ]; then
-                for dup in $(find "${NIOGIT_ROOT}/${SPACE_NAME}" -maxdepth 1 -type d -name "${REPO_NAME}-*.git" 2>/dev/null || true); do
-                  [ -d "$dup" ] || continue
-                  base="$(basename "$dup")"
-                  suffix="${base#${REPO_NAME}-}"
-                  suffix="${suffix%.git}"
-                  if printf '%s' "$suffix" | grep -Eq '^[0-9]+$'; then
-                    if rm -rf "$dup"; then
-                      echo "Removed duplicate repo dir after import: ${dup}"
-                    else
-                      echo "WARN: Failed to remove duplicate repo dir after import: ${dup}"
-                    fi
-                  fi
-                done
+              remaining=""
+              for i in 1 2 3 4 5; do
+                cleanup_duplicate_repos
+                remaining="$(find "${NIOGIT_ROOT}/${SPACE_NAME}" -maxdepth 1 -type d -name "${REPO_NAME}-*.git" 2>/dev/null | sed -n "s|.*/||p")"
+                if [ -z "$remaining" ]; then
+                  break
+                fi
+                echo "Duplicates still present; waiting for import to settle..."
+                sleep 2
+              done
+              if [ -n "$remaining" ]; then
+                echo "WARN: Duplicate repo dirs still present after cleanup:"
+                echo "$remaining"
               fi
 
               if [ "${HOLD_POD:-false}" = "true" ]; then
