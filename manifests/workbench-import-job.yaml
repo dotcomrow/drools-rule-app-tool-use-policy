@@ -93,8 +93,10 @@ spec:
                 for i in $(seq 1 "$attempts"); do
                   refresh_project_list
                   if [ "$PROJECT_EXISTS" = "true" ]; then
+                    echo "Project visible in Workbench (attempt ${i}/${attempts})"
                     return 0
                   fi
+                  echo "Project not visible yet (attempt ${i}/${attempts}, HTTP ${PROJECT_CODE})"
                   sleep 2
                 done
                 return 1
