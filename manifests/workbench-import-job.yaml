@@ -265,14 +265,14 @@ spec:
               rm -f "$SPACE_RESPONSE" "$SPACE_HEADERS"
 
               NIOGIT_ROOT="/niogit/.niogit"
+              NIOGIT_CANONICAL="false"
               if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}" ]; then
-                for dup in "${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}-"*.git; do
+                if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git" ]; then
+                  NIOGIT_CANONICAL="true"
+                fi
+                for dup in $(find "${NIOGIT_ROOT}/${SPACE_NAME}" -maxdepth 1 -type d -name "${REPO_NAME}-*.git" 2>/dev/null); do
                   [ -d "$dup" ] || continue
                   base="$(basename "$dup")"
-                  case "$base" in
-                    "${REPO_NAME}-"[0-9]*.git) ;;
-                    *) continue ;;
-                  esac
                   suffix="${base#${REPO_NAME}-}"
                   suffix="${suffix%.git}"
                   if printf '%s' "$suffix" | grep -Eq '^[0-9]+$'; then
@@ -341,6 +341,11 @@ spec:
                 fi
               else
                 echo "WARN: Unable to list projects (HTTP ${PROJECT_CODE}); continuing"
+              fi
+
+              if [ "$PROJECT_EXISTS" = "false" ] && [ "$NIOGIT_CANONICAL" = "true" ]; then
+                echo "Found repo on disk; treating as existing project: ${REPO_NAME}"
+                PROJECT_EXISTS="true"
               fi
 
               NEED_PULL="false"
