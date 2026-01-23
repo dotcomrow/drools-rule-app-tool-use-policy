@@ -89,7 +89,7 @@ spec:
                 fi
               }
               wait_for_project() {
-                attempts="${1:-6}"
+                attempts="${1:-30}"
                 for i in $(seq 1 "$attempts"); do
                   refresh_project_list
                   if [ "$PROJECT_EXISTS" = "true" ]; then
@@ -384,7 +384,7 @@ spec:
               SKIP_CLONE="false"
               if [ "$PROJECT_EXISTS" = "false" ] && [ "$NIOGIT_CANONICAL" = "true" ]; then
                 echo "Repo exists on disk; waiting for Workbench to register project..."
-                if wait_for_project 6; then
+                if wait_for_project 30; then
                   echo "OK: Project registered: ${REPO_NAME}"
                 else
                   echo "WARN: Project not registered yet; skipping clone to avoid duplicates."
@@ -458,7 +458,7 @@ spec:
                   else
                     if [ "$PULL_CODE" = "404" ]; then
                       echo "WARN: Repo pull returned 404; waiting for project registration..."
-                      if wait_for_project 6; then
+                      if wait_for_project 30; then
                         echo "Retrying repo pull after registration..."
                         PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
                           -H "Authorization: Bearer ${TOKEN}" \
@@ -494,14 +494,14 @@ spec:
               fi
 
               remaining=""
-              for i in 1 2 3 4 5; do
+              for i in $(seq 1 20); do
                 cleanup_duplicate_repos
                 remaining="$(find "${NIOGIT_ROOT}/${SPACE_NAME}" -maxdepth 1 -type d -name "${REPO_NAME}-*.git" 2>/dev/null | sed -n "s|.*/||p")"
                 if [ -z "$remaining" ]; then
                   break
                 fi
                 echo "Duplicates still present; waiting for import to settle..."
-                sleep 2
+                sleep 3
               done
               if [ -n "$remaining" ]; then
                 echo "WARN: Duplicate repo dirs still present after cleanup:"
