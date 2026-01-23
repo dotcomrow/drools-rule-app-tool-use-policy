@@ -118,8 +118,7 @@ spec:
                   fi
                   if [ -n "$PROJECT_SLUGS" ]; then
                     OLD_IFS="$IFS"
-                    IFS='
-'
+                    IFS="$(printf '\n')"
                     for line in $PROJECT_SLUGS; do
                       [ -n "$line" ] || continue
                       slug="${line%%|*}"
