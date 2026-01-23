@@ -10,3 +10,4 @@ data:
   DEFAULT_GROUP_ID: "com.dotcomrow.rules"
   REPO_NAME: "tool-use-policy"
   REPO_URL: "https://github.com/dotcomrow/drools-rule-app-tool-use-policy.git"
+  REPO_BRANCH: "prod"
