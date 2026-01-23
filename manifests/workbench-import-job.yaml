@@ -69,6 +69,36 @@ spec:
                   fi
                 done
               }
+              refresh_project_list() {
+                PROJECT_EXISTS="false"
+                PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Accept: application/json" \
+                  "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects" || true)"
+                PROJECT_JSON="$(printf '%s' "$PROJECT_BODY" | sed '$d')"
+                PROJECT_CODE="$(printf '%s' "$PROJECT_BODY" | tail -n 1)"
+                if [ "$PROJECT_CODE" = "200" ]; then
+                  if printf '%s' "$PROJECT_JSON" | jq -e --arg name "$REPO_NAME" '
+                    if type == "array" then
+                      .[] | select(.name == $name or .projectName == $name)
+                    elif type == "object" then
+                      (.projects // .items // .result // [])[] | select(.name == $name or .projectName == $name)
+                    else empty end' >/dev/null 2>&1; then
+                    PROJECT_EXISTS="true"
+                  fi
+                fi
+              }
+              wait_for_project() {
+                attempts="${1:-6}"
+                for i in $(seq 1 "$attempts"); do
+                  refresh_project_list
+                  if [ "$PROJECT_EXISTS" = "true" ]; then
+                    return 0
+                  fi
+                  sleep 2
+                done
+                return 1
+              }
 
               apk add --no-cache curl jq
               export VAULT_ADDR="http://vault.vault.svc.cluster.local:8200"
@@ -307,23 +337,8 @@ spec:
               fi
               cleanup_duplicate_repos
 
-              PROJECT_EXISTS="false"
-              PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
-                -H "Authorization: Bearer ${TOKEN}" \
-                -H "Accept: application/json" \
-                "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects" || true)"
-              PROJECT_JSON="$(printf '%s' "$PROJECT_BODY" | sed '$d')"
-              PROJECT_CODE="$(printf '%s' "$PROJECT_BODY" | tail -n 1)"
+              refresh_project_list
               if [ "$PROJECT_CODE" = "200" ]; then
-                if printf '%s' "$PROJECT_JSON" | jq -e --arg name "$REPO_NAME" '
-                  if type == "array" then
-                    .[] | select(.name == $name or .projectName == $name)
-                  elif type == "object" then
-                    (.projects // .items // .result // [])[] | select(.name == $name or .projectName == $name)
-                  else empty end' >/dev/null 2>&1; then
-                  PROJECT_EXISTS="true"
-                fi
-
                 DUP_NAMES="$(printf '%s' "$PROJECT_JSON" | jq -r --arg base "$REPO_NAME" '
                   def items:
                     if type == "array" then .
@@ -366,6 +381,17 @@ spec:
                 echo "WARN: Unable to list projects (HTTP ${PROJECT_CODE}); continuing"
               fi
 
+              SKIP_CLONE="false"
+              if [ "$PROJECT_EXISTS" = "false" ] && [ "$NIOGIT_CANONICAL" = "true" ]; then
+                echo "Repo exists on disk; waiting for Workbench to register project..."
+                if wait_for_project 6; then
+                  echo "OK: Project registered: ${REPO_NAME}"
+                else
+                  echo "WARN: Project not registered yet; skipping clone to avoid duplicates."
+                  SKIP_CLONE="true"
+                fi
+              fi
+
               CLONE_PAYLOAD="$(jq -n \
                 --arg name "$REPO_NAME" \
                 --arg url "$REPO_URL" \
@@ -378,47 +404,37 @@ spec:
                 echo "Project already exists; pulling latest: ${REPO_NAME}"
                 NEED_PULL="true"
               else
-                CLONE_RESPONSE="$(mktemp)"
-                CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
-                  -H "Authorization: Bearer ${TOKEN}" \
-                  -H "Accept: application/json" \
-                  -H "Content-Type: application/json" \
-                  -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
-                  -d "$CLONE_PAYLOAD" || true)"
-                if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
-                  echo "OK: Repo import requested: ${REPO_NAME}"
-                elif [ "$CLONE_CODE" = "409" ]; then
-                  echo "Repo already exists; pulling latest: ${REPO_NAME}"
-                  NEED_PULL="true"
-                  PROJECT_EXISTS="true"
+                if [ "$SKIP_CLONE" = "true" ]; then
+                  echo "Skipping clone because repo exists on disk and project is not registered."
+                  NEED_PULL="false"
                 else
-                  echo "Repo import failed (HTTP ${CLONE_CODE}); response body:"
-                  cat "$CLONE_RESPONSE"
-                  echo
-                  echo "Checking for existing project to pull latest..."
-                  NEED_PULL="true"
-                  if [ "$PROJECT_CODE" = "200" ] && [ "$PROJECT_EXISTS" = "true" ]; then
-                    :
-                  elif [ "$PROJECT_CODE" != "200" ]; then
-                    PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
-                      -H "Authorization: Bearer ${TOKEN}" \
-                      -H "Accept: application/json" \
-                      "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects" || true)"
-                    PROJECT_JSON="$(printf '%s' "$PROJECT_BODY" | sed '$d')"
-                    PROJECT_CODE="$(printf '%s' "$PROJECT_BODY" | tail -n 1)"
-                    if [ "$PROJECT_CODE" = "200" ]; then
-                      if printf '%s' "$PROJECT_JSON" | jq -e --arg name "$REPO_NAME" '
-                        if type == "array" then
-                          .[] | select(.name == $name or .projectName == $name)
-                        elif type == "object" then
-                          (.projects // .items // .result // [])[] | select(.name == $name or .projectName == $name)
-                        else empty end' >/dev/null 2>&1; then
-                        PROJECT_EXISTS="true"
-                      fi
+                  CLONE_RESPONSE="$(mktemp)"
+                  CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Accept: application/json" \
+                    -H "Content-Type: application/json" \
+                    -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
+                    -d "$CLONE_PAYLOAD" || true)"
+                  if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
+                    echo "OK: Repo import requested: ${REPO_NAME}"
+                  elif [ "$CLONE_CODE" = "409" ]; then
+                    echo "Repo already exists; pulling latest: ${REPO_NAME}"
+                    NEED_PULL="true"
+                    PROJECT_EXISTS="true"
+                  else
+                    echo "Repo import failed (HTTP ${CLONE_CODE}); response body:"
+                    cat "$CLONE_RESPONSE"
+                    echo
+                    echo "Checking for existing project to pull latest..."
+                    NEED_PULL="true"
+                    if [ "$PROJECT_CODE" = "200" ] && [ "$PROJECT_EXISTS" = "true" ]; then
+                      :
+                    elif [ "$PROJECT_CODE" != "200" ]; then
+                      refresh_project_list
                     fi
                   fi
+                  rm -f "$CLONE_RESPONSE"
                 fi
-                rm -f "$CLONE_RESPONSE"
               fi
 
               if [ "$NEED_PULL" = "true" ]; then
@@ -441,24 +457,29 @@ spec:
                     echo "OK: Repo pull requested: ${REPO_NAME}"
                   else
                     if [ "$PULL_CODE" = "404" ]; then
-                      echo "WARN: Repo pull returned 404; attempting clone: ${REPO_NAME}"
-                      CLONE_RESPONSE="$(mktemp)"
-                      CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
-                        -H "Authorization: Bearer ${TOKEN}" \
-                        -H "Accept: application/json" \
-                        -H "Content-Type: application/json" \
-                        -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
-                        -d "$CLONE_PAYLOAD" || true)"
-                      if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
-                        echo "OK: Repo import requested after pull 404: ${REPO_NAME}"
-                      elif [ "$CLONE_CODE" = "409" ]; then
-                        echo "Repo already exists after pull 404; continuing: ${REPO_NAME}"
+                      echo "WARN: Repo pull returned 404; waiting for project registration..."
+                      if wait_for_project 6; then
+                        echo "Retrying repo pull after registration..."
+                        PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
+                          -H "Authorization: Bearer ${TOKEN}" \
+                          -H "Accept: application/json" \
+                          -H "Content-Type: application/json" \
+                          -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${REPO_NAME}/git/pull" || true)"
+                        if [ "$PULL_CODE" = "404" ] || [ "$PULL_CODE" = "405" ]; then
+                          PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
+                            -H "Authorization: Bearer ${TOKEN}" \
+                            -H "Accept: application/json" \
+                            -H "Content-Type: application/json" \
+                            -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${REPO_NAME}/git/pull" || true)"
+                        fi
+                        if [ "$PULL_CODE" = "200" ] || [ "$PULL_CODE" = "202" ] || [ "$PULL_CODE" = "204" ]; then
+                          echo "OK: Repo pull requested after registration: ${REPO_NAME}"
+                        else
+                          echo "WARN: Repo pull still failing (HTTP ${PULL_CODE}); skipping clone to avoid duplicates."
+                        fi
                       else
-                        echo "ERROR: Repo import failed after pull 404 (HTTP ${CLONE_CODE})"
-                        cat "$CLONE_RESPONSE"
-                        exit 1
+                        echo "WARN: Project not registered; skipping clone to avoid duplicates."
                       fi
-                      rm -f "$CLONE_RESPONSE"
                     else
                       echo "ERROR: Repo pull failed (HTTP ${PULL_CODE})"
                       cat "$PULL_RESPONSE"
