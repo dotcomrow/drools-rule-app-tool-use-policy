@@ -257,49 +257,117 @@ spec:
               fi
               rm -f "$SPACE_RESPONSE" "$SPACE_HEADERS"
 
-              CLONE_PAYLOAD="$(jq -n \
-                --arg name "$REPO_NAME" \
-                --arg url "$REPO_URL" \
-                --arg user "$GH_USER" \
-                --arg pass "$GH_TOKEN" \
-                '{name:$name, gitURL:$url, userName:$user, password:$pass}')"
-              CLONE_RESPONSE="$(mktemp)"
-              CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
+              PROJECT_EXISTS="false"
+              PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
                 -H "Authorization: Bearer ${TOKEN}" \
                 -H "Accept: application/json" \
-                -H "Content-Type: application/json" \
-                -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
-                -d "$CLONE_PAYLOAD" || true)"
-              NEED_PULL="false"
-              PROJECT_EXISTS="false"
-              if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
-                echo "OK: Repo import requested: ${REPO_NAME}"
-              elif [ "$CLONE_CODE" = "409" ]; then
-                echo "Repo already exists; pulling latest: ${REPO_NAME}"
-                NEED_PULL="true"
-                PROJECT_EXISTS="true"
+                "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects" || true)"
+              PROJECT_JSON="$(printf '%s' "$PROJECT_BODY" | sed '$d')"
+              PROJECT_CODE="$(printf '%s' "$PROJECT_BODY" | tail -n 1)"
+              if [ "$PROJECT_CODE" = "200" ]; then
+                if printf '%s' "$PROJECT_JSON" | jq -e --arg name "$REPO_NAME" '
+                  if type == "array" then
+                    .[] | select(.name == $name or .projectName == $name)
+                  elif type == "object" then
+                    (.projects // .items // .result // [])[] | select(.name == $name or .projectName == $name)
+                  else empty end' >/dev/null 2>&1; then
+                  PROJECT_EXISTS="true"
+                fi
+
+                DUP_NAMES="$(printf '%s' "$PROJECT_JSON" | jq -r --arg base "$REPO_NAME" '
+                  def items:
+                    if type == "array" then .
+                    elif type == "object" then (.projects // .items // .result // [])
+                    else [] end;
+                  items
+                  | .[]?
+                  | (.name // .projectName // empty)
+                  | select(startswith($base + "-"))
+                  | ltrimstr($base + "-") as $suffix
+                  | select($suffix | test("^[0-9]+$"))
+                  | ($base + "-" + $suffix)
+                ')"
+                if [ -n "$DUP_NAMES" ]; then
+                  echo "Cleaning duplicate project imports for ${REPO_NAME}"
+                  for DUP in $DUP_NAMES; do
+                    echo "Deleting duplicate project: ${DUP}"
+                    DEL_RESPONSE="$(mktemp)"
+                    DEL_CODE="$(curl -sS -o "$DEL_RESPONSE" -w '%{http_code}' \
+                      -H "Authorization: Bearer ${TOKEN}" \
+                      -H "Accept: application/json" \
+                      -X DELETE "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${DUP}" || true)"
+                    if [ "$DEL_CODE" = "404" ] || [ "$DEL_CODE" = "405" ]; then
+                      DEL_CODE="$(curl -sS -o "$DEL_RESPONSE" -w '%{http_code}' \
+                        -H "Authorization: Bearer ${TOKEN}" \
+                        -H "Accept: application/json" \
+                        -X DELETE "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${DUP}" || true)"
+                    fi
+                    if [ "$DEL_CODE" = "200" ] || [ "$DEL_CODE" = "202" ] || [ "$DEL_CODE" = "204" ]; then
+                      echo "OK: Deleted duplicate project: ${DUP}"
+                    else
+                      echo "WARN: Failed to delete duplicate project ${DUP} (HTTP ${DEL_CODE})"
+                      cat "$DEL_RESPONSE"
+                      echo
+                    fi
+                    rm -f "$DEL_RESPONSE"
+                  done
+                fi
               else
-                echo "Repo import failed (HTTP ${CLONE_CODE}); response body:"
-                cat "$CLONE_RESPONSE"
-                echo
-                echo "Checking for existing project to pull latest..."
+                echo "WARN: Unable to list projects (HTTP ${PROJECT_CODE}); continuing"
+              fi
+
+              NEED_PULL="false"
+              if [ "$PROJECT_EXISTS" = "true" ]; then
+                echo "Project already exists; pulling latest: ${REPO_NAME}"
                 NEED_PULL="true"
-                PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
+              else
+                CLONE_PAYLOAD="$(jq -n \
+                  --arg name "$REPO_NAME" \
+                  --arg url "$REPO_URL" \
+                  --arg user "$GH_USER" \
+                  --arg pass "$GH_TOKEN" \
+                  '{name:$name, gitURL:$url, userName:$user, password:$pass}')"
+                CLONE_RESPONSE="$(mktemp)"
+                CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
                   -H "Authorization: Bearer ${TOKEN}" \
                   -H "Accept: application/json" \
-                  "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects" || true)"
-                PROJECT_JSON="$(printf '%s' "$PROJECT_BODY" | sed '$d')"
-                PROJECT_CODE="$(printf '%s' "$PROJECT_BODY" | tail -n 1)"
-                if [ "$PROJECT_CODE" = "200" ]; then
-                  if printf '%s' "$PROJECT_JSON" | jq -e --arg name "$REPO_NAME" '
-                    if type == "array" then
-                      .[] | select(.name == $name or .projectName == $name)
-                    elif type == "object" then
-                      (.projects // .items // .result // [])[] | select(.name == $name or .projectName == $name)
-                    else empty end' >/dev/null 2>&1; then
-                    PROJECT_EXISTS="true"
+                  -H "Content-Type: application/json" \
+                  -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
+                  -d "$CLONE_PAYLOAD" || true)"
+                if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
+                  echo "OK: Repo import requested: ${REPO_NAME}"
+                elif [ "$CLONE_CODE" = "409" ]; then
+                  echo "Repo already exists; pulling latest: ${REPO_NAME}"
+                  NEED_PULL="true"
+                  PROJECT_EXISTS="true"
+                else
+                  echo "Repo import failed (HTTP ${CLONE_CODE}); response body:"
+                  cat "$CLONE_RESPONSE"
+                  echo
+                  echo "Checking for existing project to pull latest..."
+                  NEED_PULL="true"
+                  if [ "$PROJECT_CODE" = "200" ] && [ "$PROJECT_EXISTS" = "true" ]; then
+                    :
+                  elif [ "$PROJECT_CODE" != "200" ]; then
+                    PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
+                      -H "Authorization: Bearer ${TOKEN}" \
+                      -H "Accept: application/json" \
+                      "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects" || true)"
+                    PROJECT_JSON="$(printf '%s' "$PROJECT_BODY" | sed '$d')"
+                    PROJECT_CODE="$(printf '%s' "$PROJECT_BODY" | tail -n 1)"
+                    if [ "$PROJECT_CODE" = "200" ]; then
+                      if printf '%s' "$PROJECT_JSON" | jq -e --arg name "$REPO_NAME" '
+                        if type == "array" then
+                          .[] | select(.name == $name or .projectName == $name)
+                        elif type == "object" then
+                          (.projects // .items // .result // [])[] | select(.name == $name or .projectName == $name)
+                        else empty end' >/dev/null 2>&1; then
+                        PROJECT_EXISTS="true"
+                      fi
+                    fi
                   fi
                 fi
+                rm -f "$CLONE_RESPONSE"
               fi
 
               if [ "$NEED_PULL" = "true" ]; then
@@ -331,4 +399,3 @@ spec:
                   exit 1
                 fi
               fi
-              rm -f "$CLONE_RESPONSE"
