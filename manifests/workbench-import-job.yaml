@@ -97,7 +97,15 @@ spec:
                     | .uri // empty
                   ' 2>/dev/null || true)"
                   if [ -n "$PROJECT_URIS" ]; then
-                    PROJECT_SLUGS="$(printf '%s\n' "$PROJECT_URIS" | sed -n "s#^.*/git/[^/]*/\\(${REPO_NAME}[^/]*\\)$#\\1#p" | sort -u)"
+                    PROJECT_SLUGS="$(printf '%s\n' "$PROJECT_URIS" | while IFS= read -r uri; do
+                      case "$uri" in
+                        */git/*/"$REPO_NAME"*)
+                          slug="${uri##*/git/}"
+                          slug="${slug#*/}"
+                          [ -n "$slug" ] && printf '%s\n' "$slug"
+                          ;;
+                      esac
+                    done | sort -u)"
                   fi
                   if [ -n "$PROJECT_SLUGS" ]; then
                     for slug in $PROJECT_SLUGS; do
