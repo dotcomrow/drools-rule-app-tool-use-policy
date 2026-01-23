@@ -360,22 +360,18 @@ spec:
                 echo "WARN: Unable to list projects (HTTP ${PROJECT_CODE}); continuing"
               fi
 
-              if [ "$PROJECT_EXISTS" = "false" ] && [ "$NIOGIT_CANONICAL" = "true" ]; then
-                echo "Found repo on disk; treating as existing project: ${REPO_NAME}"
-                PROJECT_EXISTS="true"
-              fi
+              CLONE_PAYLOAD="$(jq -n \
+                --arg name "$REPO_NAME" \
+                --arg url "$REPO_URL" \
+                --arg user "$GH_USER" \
+                --arg pass "$GH_TOKEN" \
+                '{name:$name, gitURL:$url, userName:$user, password:$pass}')"
 
               NEED_PULL="false"
               if [ "$PROJECT_EXISTS" = "true" ]; then
                 echo "Project already exists; pulling latest: ${REPO_NAME}"
                 NEED_PULL="true"
               else
-                CLONE_PAYLOAD="$(jq -n \
-                  --arg name "$REPO_NAME" \
-                  --arg url "$REPO_URL" \
-                  --arg user "$GH_USER" \
-                  --arg pass "$GH_TOKEN" \
-                  '{name:$name, gitURL:$url, userName:$user, password:$pass}')"
                 CLONE_RESPONSE="$(mktemp)"
                 CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
                   -H "Authorization: Bearer ${TOKEN}" \
@@ -438,9 +434,30 @@ spec:
                   if [ "$PULL_CODE" = "200" ] || [ "$PULL_CODE" = "202" ] || [ "$PULL_CODE" = "204" ]; then
                     echo "OK: Repo pull requested: ${REPO_NAME}"
                   else
-                    echo "ERROR: Repo pull failed (HTTP ${PULL_CODE})"
-                    cat "$PULL_RESPONSE"
-                    exit 1
+                    if [ "$PULL_CODE" = "404" ]; then
+                      echo "WARN: Repo pull returned 404; attempting clone: ${REPO_NAME}"
+                      CLONE_RESPONSE="$(mktemp)"
+                      CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
+                        -H "Authorization: Bearer ${TOKEN}" \
+                        -H "Accept: application/json" \
+                        -H "Content-Type: application/json" \
+                        -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
+                        -d "$CLONE_PAYLOAD" || true)"
+                      if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
+                        echo "OK: Repo import requested after pull 404: ${REPO_NAME}"
+                      elif [ "$CLONE_CODE" = "409" ]; then
+                        echo "Repo already exists after pull 404; continuing: ${REPO_NAME}"
+                      else
+                        echo "ERROR: Repo import failed after pull 404 (HTTP ${CLONE_CODE})"
+                        cat "$CLONE_RESPONSE"
+                        exit 1
+                      fi
+                      rm -f "$CLONE_RESPONSE"
+                    else
+                      echo "ERROR: Repo pull failed (HTTP ${PULL_CODE})"
+                      cat "$PULL_RESPONSE"
+                      exit 1
+                    fi
                   fi
                   rm -f "$PULL_RESPONSE"
                 else
