@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: drools-maven-repo-tool-use-policy
+  namespace: drools
+  labels:
+    rules.dotcomrow/maven-repo: "true"
+data:
+  repo-id: tool-use-policy
+  repo-url: https://maven.pkg.github.com/dotcomrow/drools-rule-app-tool-use-policy
