@@ -17,6 +17,13 @@ spec:
     spec:
       serviceAccountName: drools-rules-service
       restartPolicy: OnFailure
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: kie-workbench
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: import
           image: hashicorp/vault:1.15.4
