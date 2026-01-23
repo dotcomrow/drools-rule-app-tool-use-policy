@@ -182,34 +182,6 @@ spec:
                 done
                 return 1
               }
-              ensure_reimport_backup() {
-                if [ -n "${NIOGIT_BACKUP:-}" ]; then
-                  return 0
-                fi
-                canonical="${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git"
-                if [ -d "$canonical" ]; then
-                  NIOGIT_BACKUP="${canonical}.bak-$(date +%s)"
-                  if mv "$canonical" "$NIOGIT_BACKUP"; then
-                    echo "Moved canonical repo to backup: ${NIOGIT_BACKUP}"
-                  else
-                    echo "WARN: Failed to move canonical repo for re-import: ${canonical}"
-                    NIOGIT_BACKUP=""
-                  fi
-                fi
-              }
-              finalize_reimport() {
-                if [ -z "${NIOGIT_BACKUP:-}" ]; then
-                  return 0
-                fi
-                canonical="${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git"
-                if [ -d "$canonical" ]; then
-                  rm -rf "$NIOGIT_BACKUP"
-                else
-                  mv "$NIOGIT_BACKUP" "$canonical"
-                fi
-                NIOGIT_BACKUP=""
-              }
-
               apk add --no-cache curl jq git
               export VAULT_ADDR="http://vault.vault.svc.cluster.local:8200"
 
@@ -448,8 +420,7 @@ spec:
 
               NIOGIT_ROOT="/niogit/.niogit"
               NIOGIT_CANONICAL="false"
-              NIOGIT_BACKUP=""
-              NEEDS_REIMPORT="false"
+              SYNC_REPO=""
               update_repo_head() {
                 if [ -z "${NIOGIT_ROOT:-}" ] || [ -z "${SPACE_NAME:-}" ] || [ -z "${REPO_NAME:-}" ]; then
                   return 0
@@ -479,10 +450,27 @@ spec:
                   fi
                 done
               }
+              git_auth_header() {
+                printf '%s' "$GH_USER:$GH_TOKEN" | base64 | tr -d '\n'
+              }
+              git_sync_repo() {
+                repo="$1"
+                if [ ! -d "$repo" ]; then
+                  echo "ERROR: Repo dir not found: $repo"
+                  return 1
+                fi
+                if ! git --git-dir="$repo" remote get-url origin >/dev/null 2>&1; then
+                  git --git-dir="$repo" remote add origin "$REPO_URL"
+                else
+                  git --git-dir="$repo" remote set-url origin "$REPO_URL"
+                fi
+                auth_header="$(git_auth_header)"
+                GIT_TERMINAL_PROMPT=0 git -c http.extraHeader="Authorization: Basic ${auth_header}" \
+                  --git-dir="$repo" fetch --prune origin
+              }
               if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git" ]; then
                 NIOGIT_CANONICAL="true"
               fi
-              cleanup_duplicate_repos
 
               refresh_project_list
               if [ "$PROJECT_CODE" = "200" ]; then
@@ -490,7 +478,6 @@ spec:
                   echo "Detected project repos: ${PROJECT_SLUGS}"
                   if [ -n "$PROJECT_SLUG_KEEP" ]; then
                     echo "Keeping project repo: ${PROJECT_SLUG_KEEP}"
-                    cleanup_duplicate_repos "$PROJECT_SLUG_KEEP"
                   fi
                 fi
               else
@@ -502,25 +489,19 @@ spec:
                 if wait_for_project 30; then
                   echo "OK: Project registered: ${REPO_NAME}"
                   PROJECT_EXISTS="true"
+                  refresh_project_list
                 else
-                  echo "Project not registered; re-importing from GitHub."
-                  NEEDS_REIMPORT="true"
-                  ensure_reimport_backup
+                  echo "Project not registered yet; importing from GitHub."
                 fi
               fi
 
-              CLONE_PAYLOAD="$(jq -n \
-                --arg name "$REPO_NAME" \
-                --arg url "$REPO_URL" \
-                --arg user "$GH_USER" \
-                --arg pass "$GH_TOKEN" \
-                '{name:$name, gitURL:$url, userName:$user, password:$pass}')"
-
-              NEED_PULL="false"
-              if [ "$PROJECT_EXISTS" = "true" ]; then
-                echo "Project already exists; pulling latest: ${PROJECT_ID}"
-                NEED_PULL="true"
-              else
+              if [ "$PROJECT_EXISTS" = "false" ]; then
+                CLONE_PAYLOAD="$(jq -n \
+                  --arg name "$REPO_NAME" \
+                  --arg url "$REPO_URL" \
+                  --arg user "$GH_USER" \
+                  --arg pass "$GH_TOKEN" \
+                  '{name:$name, gitURL:$url, userName:$user, password:$pass}')"
                 CLONE_RESPONSE="$(mktemp)"
                 CLONE_HEADERS="$(mktemp)"
                 CLONE_CODE="$(curl -sS -D "$CLONE_HEADERS" -o "$CLONE_RESPONSE" -w '%{http_code}' \
@@ -529,96 +510,49 @@ spec:
                   -H "Content-Type: application/json" \
                   -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
                   -d "$CLONE_PAYLOAD" || true)"
-                if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
+                if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ] || [ "$CLONE_CODE" = "409" ]; then
                   echo "OK: Repo import requested: ${REPO_NAME} (HTTP ${CLONE_CODE})"
                   debug_rest "repo import" "$CLONE_CODE" "$(cat "$CLONE_RESPONSE")"
-                  finalize_reimport
-                  update_repo_head
                   if wait_for_project 60; then
                     PROJECT_EXISTS="true"
+                    refresh_project_list
                   else
-                    echo "WARN: Project not visible after import; re-importing from GitHub."
-                    NEEDS_REIMPORT="true"
-                    ensure_reimport_backup
-                    CLONE_CODE="$(curl -sS -D "$CLONE_HEADERS" -o "$CLONE_RESPONSE" -w '%{http_code}' \
-                      -H "Authorization: Bearer ${TOKEN}" \
-                      -H "Accept: application/json" \
-                      -H "Content-Type: application/json" \
-                      -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
-                      -d "$CLONE_PAYLOAD" || true)"
-                    if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ] || [ "$CLONE_CODE" = "409" ]; then
-                      echo "OK: Repo import requested after re-import: ${REPO_NAME} (HTTP ${CLONE_CODE})"
-                      debug_rest "repo import (re-import)" "$CLONE_CODE" "$(cat "$CLONE_RESPONSE")"
-                      finalize_reimport
-                      update_repo_head
-                      if wait_for_project 60; then
-                        PROJECT_EXISTS="true"
-                      else
-                        echo "ERROR: Project still not visible after re-import"
-                        debug_rest "repo import (re-import)" "$CLONE_CODE" "$(cat "$CLONE_RESPONSE")"
-                        cat "$CLONE_RESPONSE"
-                        exit 1
-                      fi
-                    else
-                      echo "ERROR: Repo import failed after re-import (HTTP ${CLONE_CODE})"
-                      debug_rest "repo import (re-import)" "$CLONE_CODE" "$(cat "$CLONE_RESPONSE")"
-                      cat "$CLONE_RESPONSE"
-                      finalize_reimport
-                      exit 1
-                    fi
-                  fi
-                elif [ "$CLONE_CODE" = "409" ]; then
-                  echo "Repo already exists; pulling latest: ${REPO_NAME}"
-                  NEED_PULL="true"
-                  PROJECT_EXISTS="true"
-                  finalize_reimport
-                else
-                  echo "Repo import failed (HTTP ${CLONE_CODE}); response body:"
-                  cat "$CLONE_RESPONSE"
-                  echo
-                  finalize_reimport
-                  refresh_project_list
-                  if [ "$PROJECT_EXISTS" = "true" ]; then
-                    NEED_PULL="true"
-                  else
+                    echo "ERROR: Project not visible after import"
+                    debug_rest "repo import" "$CLONE_CODE" "$(cat "$CLONE_RESPONSE")"
                     exit 1
                   fi
+                else
+                  echo "ERROR: Repo import failed (HTTP ${CLONE_CODE})"
+                  debug_rest "repo import" "$CLONE_CODE" "$(cat "$CLONE_RESPONSE")"
+                  cat "$CLONE_RESPONSE"
+                  exit 1
                 fi
                 rm -f "$CLONE_RESPONSE" "$CLONE_HEADERS"
               fi
 
-              PROJECT_ID_URL="$(printf '%s' "$PROJECT_ID" | jq -sRr @uri)"
-              if [ "$NEED_PULL" = "true" ]; then
-                if [ "$PROJECT_EXISTS" = "true" ]; then
-                  echo "Project exists; attempting git pull: ${PROJECT_ID}"
-                  PULL_RESPONSE="$(mktemp)"
-                  PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
-                    -H "Authorization: Bearer ${TOKEN}" \
-                    -H "Accept: application/json" \
-                    -H "Content-Type: application/json" \
-                    -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${PROJECT_ID_URL}/git/pull" || true)"
-                  if [ "$PULL_CODE" = "404" ] || [ "$PULL_CODE" = "405" ]; then
-                    PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
-                      -H "Authorization: Bearer ${TOKEN}" \
-                      -H "Accept: application/json" \
-                      -H "Content-Type: application/json" \
-                      -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${PROJECT_ID_URL}/git/pull" || true)"
-                  fi
-                  if [ "$PULL_CODE" = "200" ] || [ "$PULL_CODE" = "202" ] || [ "$PULL_CODE" = "204" ]; then
-                    echo "OK: Repo pull requested: ${PROJECT_ID}"
-                  elif [ "$PULL_CODE" = "404" ] || [ "$PULL_CODE" = "405" ]; then
-                    echo "WARN: Repo pull endpoint not available (HTTP ${PULL_CODE}); skipping pull."
-                  else
-                    echo "ERROR: Repo pull failed (HTTP ${PULL_CODE})"
-                    cat "$PULL_RESPONSE"
-                    exit 1
-                  fi
-                  rm -f "$PULL_RESPONSE"
+              if [ "$PROJECT_EXISTS" = "true" ]; then
+                if [ -n "$PROJECT_SLUG_KEEP" ]; then
+                  cleanup_duplicate_repos "$PROJECT_SLUG_KEEP"
+                  SYNC_REPO="${NIOGIT_ROOT}/${SPACE_NAME}/${PROJECT_SLUG_KEEP}.git"
                 else
-                  echo "ERROR: Failed to import repo and project not found in space"
-                  exit 1
+                  SYNC_REPO="${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git"
                 fi
+              elif [ "$NIOGIT_CANONICAL" = "true" ]; then
+                SYNC_REPO="${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git"
               fi
+
+              if [ -z "$SYNC_REPO" ] || [ ! -d "$SYNC_REPO" ]; then
+                echo "ERROR: Unable to determine repo dir to sync."
+                if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}" ]; then
+                  echo "Available repos:"
+                  ls -1 "${NIOGIT_ROOT}/${SPACE_NAME}" || true
+                fi
+                exit 1
+              fi
+
+              echo "Syncing repo on disk: ${SYNC_REPO}"
+              git_sync_repo "$SYNC_REPO"
+              update_repo_head
 
               remaining=""
               for i in $(seq 1 20); do
