@@ -257,6 +257,26 @@ spec:
               fi
               rm -f "$SPACE_RESPONSE" "$SPACE_HEADERS"
 
+              NIOGIT_ROOT="/niogit/.niogit"
+              if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}" ]; then
+                for dup in "${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}-"*.git; do
+                  [ -d "$dup" ] || continue
+                  base="$(basename "$dup")"
+                  case "$base" in
+                    "${REPO_NAME}-"[0-9]*.git) ;;
+                    *) continue ;;
+                  esac
+                  suffix="${base#${REPO_NAME}-}"
+                  suffix="${suffix%.git}"
+                  if printf '%s' "$suffix" | grep -Eq '^[0-9]+$'; then
+                    echo "Removing duplicate repo dir: ${dup}"
+                    rm -rf "$dup"
+                  fi
+                done
+              else
+                echo "WARN: NIOGIT space directory not found: ${NIOGIT_ROOT}/${SPACE_NAME}"
+              fi
+
               PROJECT_EXISTS="false"
               PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
                 -H "Authorization: Bearer ${TOKEN}" \
@@ -399,3 +419,9 @@ spec:
                   exit 1
                 fi
               fi
+          volumeMounts:
+            - { name: workbench-niogit, mountPath: /niogit }
+      volumes:
+        - name: workbench-niogit
+          persistentVolumeClaim:
+            claimName: kie-workbench-niogit
