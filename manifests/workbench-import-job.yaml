@@ -580,78 +580,12 @@ spec:
                   fi
                   if [ "$PULL_CODE" = "200" ] || [ "$PULL_CODE" = "202" ] || [ "$PULL_CODE" = "204" ]; then
                     echo "OK: Repo pull requested: ${PROJECT_ID}"
+                  elif [ "$PULL_CODE" = "404" ] || [ "$PULL_CODE" = "405" ]; then
+                    echo "WARN: Repo pull endpoint not available (HTTP ${PULL_CODE}); skipping pull."
                   else
-                    if [ "$PULL_CODE" = "404" ]; then
-                      echo "WARN: Repo pull returned 404; waiting for project registration..."
-                      if wait_for_project 30; then
-                        echo "Retrying repo pull after registration..."
-                        PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
-                          -H "Authorization: Bearer ${TOKEN}" \
-                          -H "Accept: application/json" \
-                          -H "Content-Type: application/json" \
-                          -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${PROJECT_ID_URL}/git/pull" || true)"
-                        if [ "$PULL_CODE" = "404" ] || [ "$PULL_CODE" = "405" ]; then
-                          PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
-                            -H "Authorization: Bearer ${TOKEN}" \
-                            -H "Accept: application/json" \
-                            -H "Content-Type: application/json" \
-                            -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${PROJECT_ID_URL}/git/pull" || true)"
-                        fi
-                        if [ "$PULL_CODE" = "200" ] || [ "$PULL_CODE" = "202" ] || [ "$PULL_CODE" = "204" ]; then
-                          echo "OK: Repo pull requested after registration: ${REPO_NAME}"
-                        else
-                          echo "WARN: Repo pull still failing (HTTP ${PULL_CODE}); re-importing from GitHub."
-                          NEEDS_REIMPORT="true"
-                          ensure_reimport_backup
-                          CLONE_RESPONSE="$(mktemp)"
-                          CLONE_HEADERS="$(mktemp)"
-                          CLONE_CODE="$(curl -sS -D "$CLONE_HEADERS" -o "$CLONE_RESPONSE" -w '%{http_code}' \
-                            -H "Authorization: Bearer ${TOKEN}" \
-                            -H "Accept: application/json" \
-                            -H "Content-Type: application/json" \
-                            -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
-                            -d "$CLONE_PAYLOAD" || true)"
-                          if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ] || [ "$CLONE_CODE" = "409" ]; then
-                            echo "OK: Repo import requested after pull failure: ${REPO_NAME} (HTTP ${CLONE_CODE})"
-                            update_repo_head
-                          else
-                            echo "ERROR: Repo import failed after pull failure (HTTP ${CLONE_CODE})"
-                            cat "$CLONE_RESPONSE"
-                            finalize_reimport
-                            exit 1
-                          fi
-                          finalize_reimport
-                          rm -f "$CLONE_RESPONSE" "$CLONE_HEADERS"
-                        fi
-                      else
-                        echo "WARN: Project not registered; re-importing from GitHub."
-                        NEEDS_REIMPORT="true"
-                        ensure_reimport_backup
-                        CLONE_RESPONSE="$(mktemp)"
-                        CLONE_HEADERS="$(mktemp)"
-                        CLONE_CODE="$(curl -sS -D "$CLONE_HEADERS" -o "$CLONE_RESPONSE" -w '%{http_code}' \
-                          -H "Authorization: Bearer ${TOKEN}" \
-                          -H "Accept: application/json" \
-                          -H "Content-Type: application/json" \
-                          -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
-                          -d "$CLONE_PAYLOAD" || true)"
-                        if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ] || [ "$CLONE_CODE" = "409" ]; then
-                          echo "OK: Repo import requested after registration timeout: ${REPO_NAME} (HTTP ${CLONE_CODE})"
-                          update_repo_head
-                        else
-                          echo "ERROR: Repo import failed after registration timeout (HTTP ${CLONE_CODE})"
-                          cat "$CLONE_RESPONSE"
-                          finalize_reimport
-                          exit 1
-                        fi
-                        finalize_reimport
-                        rm -f "$CLONE_RESPONSE" "$CLONE_HEADERS"
-                      fi
-                    else
-                      echo "ERROR: Repo pull failed (HTTP ${PULL_CODE})"
-                      cat "$PULL_RESPONSE"
-                      exit 1
-                    fi
+                    echo "ERROR: Repo pull failed (HTTP ${PULL_CODE})"
+                    cat "$PULL_RESPONSE"
+                    exit 1
                   fi
                   rm -f "$PULL_RESPONSE"
                 else
