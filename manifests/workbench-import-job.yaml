@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: Replace=true,Force=true
     argocd.argoproj.io/sync-wave: "25"
-    rules.dotcomrow/repo-version: "1.0.105"
+    rules.dotcomrow/repo-version: "1.0.106"
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 3600
@@ -83,7 +83,6 @@ spec:
                 PROJECT_ID="$REPO_NAME"
                 PROJECT_SLUGS=""
                 PROJECT_MAX_NUM="-1"
-                PROJECT_NAME_KEEP=""
                 PROJECT_SLUG_KEEP=""
                 PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
                   -H "Authorization: Bearer ${TOKEN}" \
@@ -92,37 +91,21 @@ spec:
                 PROJECT_JSON="$(printf '%s' "$PROJECT_BODY" | sed '$d')"
                 PROJECT_CODE="$(printf '%s' "$PROJECT_BODY" | tail -n 1)"
                 if [ "$PROJECT_CODE" = "200" ]; then
-                  PROJECT_URIS="$(printf '%s' "$PROJECT_JSON" | jq -r '
+                  PROJECT_SLUGS="$(printf '%s' "$PROJECT_JSON" | jq -r --arg repo "$REPO_NAME" '
                     def items:
                       if type == "array" then .
                       elif type == "object" then (.projects // .items // .result // [])
                       else [] end;
-                    items
-                    | .[]?
-                    | (.name // .projectName // "") as $name
-                    | (.publicURIs // [])[]?
-                    | "\($name)|\(.uri // empty)"
+                    [items[] | (.publicURIs // [])[]?.uri // empty
+                      | select(test(\"/git/[^/]+/\" + $repo))
+                      | sub(\"^.*/git/[^/]+/\"; \"\")
+                    ]
+                    | unique
+                    | .[]
                   ' 2>/dev/null || true)"
-                  if [ -n "$PROJECT_URIS" ]; then
-                    PROJECT_SLUGS="$(printf '%s\n' "$PROJECT_URIS" | while IFS='|' read -r name uri; do
-                      case "$uri" in
-                        */git/*/"$REPO_NAME"*)
-                          slug="${uri##*/git/}"
-                          slug="${slug#*/}"
-                          if [ -n "$slug" ]; then
-                            printf '%s|%s\n' "$slug" "$name"
-                          fi
-                          ;;
-                      esac
-                    done | sort -u)"
-                  fi
                   if [ -n "$PROJECT_SLUGS" ]; then
-                    OLD_IFS="$IFS"
-                    IFS="$(printf '\n')"
-                    for line in $PROJECT_SLUGS; do
-                      [ -n "$line" ] || continue
-                      slug="${line%%|*}"
-                      name="${line#*|}"
+                    for slug in $PROJECT_SLUGS; do
+                      [ -n "$slug" ] || continue
                       case "$slug" in
                         "$REPO_NAME"-*)
                           num="${slug#$REPO_NAME-}"
@@ -130,24 +113,17 @@ spec:
                             if [ "$num" -gt "$PROJECT_MAX_NUM" ]; then
                               PROJECT_MAX_NUM="$num"
                               PROJECT_SLUG_KEEP="$slug"
-                              PROJECT_NAME_KEEP="$name"
                             fi
                           fi
                           ;;
                         "$REPO_NAME")
                           if [ "$PROJECT_MAX_NUM" -lt 0 ]; then
                             PROJECT_SLUG_KEEP="$slug"
-                            PROJECT_NAME_KEEP="$name"
                           fi
                           ;;
                       esac
                     done
-                    IFS="$OLD_IFS"
-                    if [ -n "$PROJECT_NAME_KEEP" ]; then
-                      PROJECT_ID="$PROJECT_NAME_KEEP"
-                    else
-                      PROJECT_ID="$REPO_NAME"
-                    fi
+                    PROJECT_ID="${PROJECT_SLUG_KEEP:-$REPO_NAME}"
                     PROJECT_EXISTS="true"
                   fi
                 fi
@@ -465,9 +441,9 @@ spec:
               refresh_project_list
               if [ "$PROJECT_CODE" = "200" ]; then
                 if [ -n "$PROJECT_SLUGS" ]; then
-                  echo "Detected project repos: $(printf '%s ' $(printf '%s\n' "$PROJECT_SLUGS" | cut -d'|' -f1))"
+                  echo "Detected project repos: ${PROJECT_SLUGS}"
                   if [ -n "$PROJECT_SLUG_KEEP" ]; then
-                    echo "Keeping project repo: ${PROJECT_SLUG_KEEP} (project name: ${PROJECT_ID})"
+                    echo "Keeping project repo: ${PROJECT_SLUG_KEEP}"
                     cleanup_duplicate_repos "$PROJECT_SLUG_KEEP"
                   fi
                 fi
@@ -596,8 +572,11 @@ spec:
 
               remaining=""
               for i in $(seq 1 20); do
-                cleanup_duplicate_repos
+                cleanup_duplicate_repos "$PROJECT_SLUG_KEEP"
                 remaining="$(find "${NIOGIT_ROOT}/${SPACE_NAME}" -maxdepth 1 -type d -name "${REPO_NAME}-*.git" 2>/dev/null | sed -n "s|.*/||p")"
+                if [ -n "$PROJECT_SLUG_KEEP" ]; then
+                  remaining="$(printf '%s\n' "$remaining" | awk -v keep="${PROJECT_SLUG_KEEP}.git" '$0 != keep')"
+                fi
                 if [ -z "$remaining" ]; then
                   break
                 fi
