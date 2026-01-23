@@ -29,7 +29,7 @@ spec:
           image: hashicorp/vault:1.15.4
           env:
             - name: HOLD_POD
-              value: "true"
+              value: "false"
           envFrom:
             - configMapRef:
                 name: workbench-import-config-tool-use-policy
