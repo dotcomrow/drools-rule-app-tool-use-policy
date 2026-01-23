@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: Replace=true,Force=true
     argocd.argoproj.io/sync-wave: "25"
-    rules.dotcomrow/repo-version: "1.0.107"
+    rules.dotcomrow/repo-version: "1.0.108"
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 3600
@@ -30,6 +30,8 @@ spec:
           env:
             - name: HOLD_POD
               value: "false"
+            - name: DEBUG_REST
+              value: "true"
           envFrom:
             - configMapRef:
                 name: workbench-import-config-tool-use-policy
@@ -44,6 +46,21 @@ spec:
                   while true; do sleep 3600; done
                 fi
                 exit "$code"
+              }
+              debug_enabled() {
+                [ "${DEBUG_REST:-false}" = "true" ]
+              }
+              debug_rest() {
+                label="$1"
+                code="$2"
+                body="$3"
+                if debug_enabled; then
+                  echo "DEBUG: ${label} HTTP ${code}"
+                  if [ -n "$body" ]; then
+                    printf '%s' "$body" | head -c 1000
+                    echo
+                  fi
+                fi
               }
               trap hold_on_error EXIT
 
@@ -90,6 +107,9 @@ spec:
                   "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects" || true)"
                 PROJECT_JSON="$(printf '%s' "$PROJECT_BODY" | sed '$d')"
                 PROJECT_CODE="$(printf '%s' "$PROJECT_BODY" | tail -n 1)"
+                if [ "$PROJECT_CODE" != "200" ]; then
+                  debug_rest "projects list" "$PROJECT_CODE" "$PROJECT_JSON"
+                fi
                 if [ "$PROJECT_CODE" = "200" ]; then
                   PROJECT_SLUGS="$(printf '%s' "$PROJECT_JSON" | jq -r --arg repo "$REPO_NAME" '
                     def items:
@@ -126,6 +146,11 @@ spec:
                     PROJECT_ID="${PROJECT_SLUG_KEEP:-$REPO_NAME}"
                     PROJECT_EXISTS="true"
                   fi
+                  if debug_enabled; then
+                    echo "DEBUG: project slugs=${PROJECT_SLUGS:-<none>}"
+                    echo "DEBUG: project slug keep=${PROJECT_SLUG_KEEP:-<none>}"
+                    echo "DEBUG: project id=${PROJECT_ID}"
+                  fi
                 fi
               }
               wait_for_project() {
@@ -135,6 +160,11 @@ spec:
                   if [ "$PROJECT_EXISTS" = "true" ]; then
                     echo "Project visible in Workbench (attempt ${i}/${attempts})"
                     return 0
+                  fi
+                  if debug_enabled; then
+                    if [ "$i" = "1" ] || [ "$i" = "$attempts" ] || [ "$PROJECT_CODE" != "200" ]; then
+                      debug_rest "projects list (attempt ${i}/${attempts})" "$PROJECT_CODE" "$PROJECT_JSON"
+                    fi
                   fi
                   echo "Project not visible yet (attempt ${i}/${attempts}, HTTP ${PROJECT_CODE})"
                   sleep 2
@@ -238,6 +268,9 @@ spec:
               if [ -z "$TOKEN" ]; then
                 TOKEN_ERROR="$(printf '%s' "$TOKEN_BODY" | jq -r '.error // empty')"
                 TOKEN_ERROR_DESC="$(printf '%s' "$TOKEN_BODY" | jq -r '.error_description // empty')"
+                if debug_enabled; then
+                  debug_rest "token request" "$TOKEN_CODE" "$TOKEN_BODY"
+                fi
                 echo "ERROR: Keycloak token request failed: HTTP ${TOKEN_CODE} ${TOKEN_ERROR}${TOKEN_ERROR_DESC:+ - }${TOKEN_ERROR_DESC}"
                 exit 1
               fi
@@ -255,10 +288,12 @@ spec:
                 if [ "$CODE" = "200" ]; then
                   break
                 fi
+                debug_rest "spaces list" "$CODE" "$SPACES_JSON"
                 echo "  ...not ready (HTTP ${CODE}); retrying"
                 sleep 5
               done
               if [ "$CODE" != "200" ]; then
+                debug_rest "spaces list" "$CODE" "$SPACES_JSON"
                 echo "ERROR: Workbench REST API not ready (last HTTP ${CODE})"
                 exit 1
               fi
@@ -485,6 +520,7 @@ spec:
                   -d "$CLONE_PAYLOAD" || true)"
                 if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
                   echo "OK: Repo import requested: ${REPO_NAME} (HTTP ${CLONE_CODE})"
+                  debug_rest "repo import" "$CLONE_CODE" "$(cat "$CLONE_RESPONSE")"
                   finalize_reimport
                   update_repo_head
                   if wait_for_project 60; then
@@ -501,17 +537,20 @@ spec:
                       -d "$CLONE_PAYLOAD" || true)"
                     if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ] || [ "$CLONE_CODE" = "409" ]; then
                       echo "OK: Repo import requested after re-import: ${REPO_NAME} (HTTP ${CLONE_CODE})"
+                      debug_rest "repo import (re-import)" "$CLONE_CODE" "$(cat "$CLONE_RESPONSE")"
                       finalize_reimport
                       update_repo_head
                       if wait_for_project 60; then
                         PROJECT_EXISTS="true"
                       else
                         echo "ERROR: Project still not visible after re-import"
+                        debug_rest "repo import (re-import)" "$CLONE_CODE" "$(cat "$CLONE_RESPONSE")"
                         cat "$CLONE_RESPONSE"
                         exit 1
                       fi
                     else
                       echo "ERROR: Repo import failed after re-import (HTTP ${CLONE_CODE})"
+                      debug_rest "repo import (re-import)" "$CLONE_CODE" "$(cat "$CLONE_RESPONSE")"
                       cat "$CLONE_RESPONSE"
                       finalize_reimport
                       exit 1
