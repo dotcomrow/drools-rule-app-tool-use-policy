@@ -111,14 +111,15 @@ spec:
                   debug_rest "projects list" "$PROJECT_CODE" "$PROJECT_JSON"
                 fi
                 if [ "$PROJECT_CODE" = "200" ]; then
-                  PROJECT_SLUGS="$(printf '%s' "$PROJECT_JSON" | jq -r --arg repo "$REPO_NAME" '
+                  PROJECT_SLUGS="$(printf '%s' "$PROJECT_JSON" | jq -r --arg repo "$REPO_NAME" --arg space "$SPACE_NAME" '
                     def items:
                       if type == "array" then .
                       elif type == "object" then (.projects // .items // .result // [])
                       else [] end;
-                    [items[] | (.publicURIs // [])[]?.uri // empty
-                      | select(test(\"/git/[^/]+/\" + $repo))
-                      | sub(\"^.*/git/[^/]+/\"; \"\")
+                    [items[] | (.publicURIs // [])[]?.uri?
+                      | select(contains("/git/" + $space + "/"))
+                      | split("/git/" + $space + "/") | .[1]?
+                      | select(startswith($repo))
                     ]
                     | unique
                     | .[]
@@ -147,6 +148,16 @@ spec:
                     PROJECT_EXISTS="true"
                   fi
                   if debug_enabled; then
+                    PROJECT_URIS="$(printf '%s' "$PROJECT_JSON" | jq -r '
+                      def items:
+                        if type == "array" then .
+                        elif type == "object" then (.projects // .items // .result // [])
+                        else [] end;
+                      [items[] | (.publicURIs // [])[]?.uri?] | unique | .[]
+                    ' 2>/dev/null || true)"
+                    if [ -n "$PROJECT_URIS" ]; then
+                      echo "DEBUG: project uris=${PROJECT_URIS}"
+                    fi
                     echo "DEBUG: project slugs=${PROJECT_SLUGS:-<none>}"
                     echo "DEBUG: project slug keep=${PROJECT_SLUG_KEEP:-<none>}"
                     echo "DEBUG: project id=${PROJECT_ID}"
