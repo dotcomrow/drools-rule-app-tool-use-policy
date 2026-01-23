@@ -99,6 +99,33 @@ spec:
                 done
                 return 1
               }
+              ensure_reimport_backup() {
+                if [ -n "${NIOGIT_BACKUP:-}" ]; then
+                  return 0
+                fi
+                canonical="${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git"
+                if [ -d "$canonical" ]; then
+                  NIOGIT_BACKUP="${canonical}.bak-$(date +%s)"
+                  if mv "$canonical" "$NIOGIT_BACKUP"; then
+                    echo "Moved canonical repo to backup: ${NIOGIT_BACKUP}"
+                  else
+                    echo "WARN: Failed to move canonical repo for re-import: ${canonical}"
+                    NIOGIT_BACKUP=""
+                  fi
+                fi
+              }
+              finalize_reimport() {
+                if [ -z "${NIOGIT_BACKUP:-}" ]; then
+                  return 0
+                fi
+                canonical="${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git"
+                if [ -d "$canonical" ]; then
+                  rm -rf "$NIOGIT_BACKUP"
+                else
+                  mv "$NIOGIT_BACKUP" "$canonical"
+                fi
+                NIOGIT_BACKUP=""
+              }
 
               apk add --no-cache curl jq
               export VAULT_ADDR="http://vault.vault.svc.cluster.local:8200"
@@ -332,6 +359,8 @@ spec:
 
               NIOGIT_ROOT="/niogit/.niogit"
               NIOGIT_CANONICAL="false"
+              NIOGIT_BACKUP=""
+              NEEDS_REIMPORT="false"
               if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git" ]; then
                 NIOGIT_CANONICAL="true"
               fi
@@ -386,9 +415,11 @@ spec:
                 echo "Repo exists on disk; waiting for Workbench to register project..."
                 if wait_for_project 30; then
                   echo "OK: Project registered: ${REPO_NAME}"
+                  PROJECT_EXISTS="true"
                 else
-                  echo "WARN: Project not registered yet; skipping clone to avoid duplicates."
-                  SKIP_CLONE="true"
+                  echo "Project not registered; re-importing from GitHub."
+                  NEEDS_REIMPORT="true"
+                  ensure_reimport_backup
                 fi
               fi
 
@@ -404,37 +435,35 @@ spec:
                 echo "Project already exists; pulling latest: ${REPO_NAME}"
                 NEED_PULL="true"
               else
-                if [ "$SKIP_CLONE" = "true" ]; then
-                  echo "Skipping clone because repo exists on disk and project is not registered."
-                  NEED_PULL="false"
+                CLONE_RESPONSE="$(mktemp)"
+                CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Accept: application/json" \
+                  -H "Content-Type: application/json" \
+                  -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
+                  -d "$CLONE_PAYLOAD" || true)"
+                if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
+                  echo "OK: Repo import requested: ${REPO_NAME}"
+                  finalize_reimport
+                elif [ "$CLONE_CODE" = "409" ]; then
+                  echo "Repo already exists; pulling latest: ${REPO_NAME}"
+                  NEED_PULL="true"
+                  PROJECT_EXISTS="true"
+                  finalize_reimport
                 else
-                  CLONE_RESPONSE="$(mktemp)"
-                  CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
-                    -H "Authorization: Bearer ${TOKEN}" \
-                    -H "Accept: application/json" \
-                    -H "Content-Type: application/json" \
-                    -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
-                    -d "$CLONE_PAYLOAD" || true)"
-                  if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
-                    echo "OK: Repo import requested: ${REPO_NAME}"
-                  elif [ "$CLONE_CODE" = "409" ]; then
-                    echo "Repo already exists; pulling latest: ${REPO_NAME}"
-                    NEED_PULL="true"
-                    PROJECT_EXISTS="true"
-                  else
-                    echo "Repo import failed (HTTP ${CLONE_CODE}); response body:"
-                    cat "$CLONE_RESPONSE"
-                    echo
-                    echo "Checking for existing project to pull latest..."
-                    NEED_PULL="true"
-                    if [ "$PROJECT_CODE" = "200" ] && [ "$PROJECT_EXISTS" = "true" ]; then
-                      :
-                    elif [ "$PROJECT_CODE" != "200" ]; then
-                      refresh_project_list
-                    fi
+                  echo "Repo import failed (HTTP ${CLONE_CODE}); response body:"
+                  cat "$CLONE_RESPONSE"
+                  echo
+                  echo "Checking for existing project to pull latest..."
+                  NEED_PULL="true"
+                  if [ "$PROJECT_CODE" = "200" ] && [ "$PROJECT_EXISTS" = "true" ]; then
+                    :
+                  elif [ "$PROJECT_CODE" != "200" ]; then
+                    refresh_project_list
                   fi
-                  rm -f "$CLONE_RESPONSE"
+                  finalize_reimport
                 fi
+                rm -f "$CLONE_RESPONSE"
               fi
 
               if [ "$NEED_PULL" = "true" ]; then
@@ -475,10 +504,52 @@ spec:
                         if [ "$PULL_CODE" = "200" ] || [ "$PULL_CODE" = "202" ] || [ "$PULL_CODE" = "204" ]; then
                           echo "OK: Repo pull requested after registration: ${REPO_NAME}"
                         else
-                          echo "WARN: Repo pull still failing (HTTP ${PULL_CODE}); skipping clone to avoid duplicates."
+                          echo "WARN: Repo pull still failing (HTTP ${PULL_CODE}); re-importing from GitHub."
+                          NEEDS_REIMPORT="true"
+                          ensure_reimport_backup
+                          CLONE_RESPONSE="$(mktemp)"
+                          CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
+                            -H "Authorization: Bearer ${TOKEN}" \
+                            -H "Accept: application/json" \
+                            -H "Content-Type: application/json" \
+                            -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
+                            -d "$CLONE_PAYLOAD" || true)"
+                          if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
+                            echo "OK: Repo import requested after pull failure: ${REPO_NAME}"
+                          elif [ "$CLONE_CODE" = "409" ]; then
+                            echo "Repo already exists after pull failure; continuing: ${REPO_NAME}"
+                          else
+                            echo "ERROR: Repo import failed after pull failure (HTTP ${CLONE_CODE})"
+                            cat "$CLONE_RESPONSE"
+                            finalize_reimport
+                            exit 1
+                          fi
+                          finalize_reimport
+                          rm -f "$CLONE_RESPONSE"
                         fi
                       else
-                        echo "WARN: Project not registered; skipping clone to avoid duplicates."
+                        echo "WARN: Project not registered; re-importing from GitHub."
+                        NEEDS_REIMPORT="true"
+                        ensure_reimport_backup
+                        CLONE_RESPONSE="$(mktemp)"
+                        CLONE_CODE="$(curl -sS -o "$CLONE_RESPONSE" -w '%{http_code}' \
+                          -H "Authorization: Bearer ${TOKEN}" \
+                          -H "Accept: application/json" \
+                          -H "Content-Type: application/json" \
+                          -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/git/clone" \
+                          -d "$CLONE_PAYLOAD" || true)"
+                        if [ "$CLONE_CODE" = "202" ] || [ "$CLONE_CODE" = "201" ] || [ "$CLONE_CODE" = "200" ]; then
+                          echo "OK: Repo import requested after registration timeout: ${REPO_NAME}"
+                        elif [ "$CLONE_CODE" = "409" ]; then
+                          echo "Repo already exists after registration timeout; continuing: ${REPO_NAME}"
+                        else
+                          echo "ERROR: Repo import failed after registration timeout (HTTP ${CLONE_CODE})"
+                          cat "$CLONE_RESPONSE"
+                          finalize_reimport
+                          exit 1
+                        fi
+                        finalize_reimport
+                        rm -f "$CLONE_RESPONSE"
                       fi
                     else
                       echo "ERROR: Repo pull failed (HTTP ${PULL_CODE})"
