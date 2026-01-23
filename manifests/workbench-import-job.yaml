@@ -48,6 +48,7 @@ spec:
               trap hold_on_error EXIT
 
               cleanup_duplicate_repos() {
+                keep_slug="${1:-}"
                 if [ -z "${NIOGIT_ROOT:-}" ] || [ -z "${SPACE_NAME:-}" ] || [ -z "${REPO_NAME:-}" ]; then
                   return 0
                 fi
@@ -56,13 +57,16 @@ spec:
                   return 0
                 fi
                 canonical="${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git"
-                if [ ! -d "$canonical" ]; then
+                if [ -z "$keep_slug" ] && [ ! -d "$canonical" ]; then
                   echo "Skipping duplicate cleanup; canonical repo missing."
                   return 0
                 fi
                 for dup in $(find "${NIOGIT_ROOT}/${SPACE_NAME}" -maxdepth 1 -type d -name "${REPO_NAME}-*.git" 2>/dev/null || true); do
                   [ -d "$dup" ] || continue
                   base="$(basename "$dup")"
+                  if [ -n "$keep_slug" ] && [ "$base" = "${keep_slug}.git" ]; then
+                    continue
+                  fi
                   suffix="${base#${REPO_NAME}-}"
                   suffix="${suffix%.git}"
                   if printf '%s' "$suffix" | grep -Eq '^[0-9]+$'; then
@@ -79,6 +83,8 @@ spec:
                 PROJECT_ID="$REPO_NAME"
                 PROJECT_SLUGS=""
                 PROJECT_MAX_NUM="-1"
+                PROJECT_NAME_KEEP=""
+                PROJECT_SLUG_KEEP=""
                 PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
                   -H "Authorization: Bearer ${TOKEN}" \
                   -H "Accept: application/json" \
@@ -93,39 +99,52 @@ spec:
                       else [] end;
                     items
                     | .[]?
+                    | (.name // .projectName // "") as $name
                     | (.publicURIs // [])[]?
-                    | .uri // empty
+                    | "\($name)|\(.uri // empty)"
                   ' 2>/dev/null || true)"
                   if [ -n "$PROJECT_URIS" ]; then
-                    PROJECT_SLUGS="$(printf '%s\n' "$PROJECT_URIS" | while IFS= read -r uri; do
+                    PROJECT_SLUGS="$(printf '%s\n' "$PROJECT_URIS" | while IFS='|' read -r name uri; do
                       case "$uri" in
                         */git/*/"$REPO_NAME"*)
                           slug="${uri##*/git/}"
                           slug="${slug#*/}"
-                          [ -n "$slug" ] && printf '%s\n' "$slug"
+                          if [ -n "$slug" ]; then
+                            printf '%s|%s\n' "$slug" "$name"
+                          fi
                           ;;
                       esac
                     done | sort -u)"
                   fi
                   if [ -n "$PROJECT_SLUGS" ]; then
-                    for slug in $PROJECT_SLUGS; do
+                    while IFS='|' read -r slug name; do
+                      [ -n "$slug" ] || continue
                       case "$slug" in
                         "$REPO_NAME"-*)
                           num="${slug#$REPO_NAME-}"
                           if printf '%s' "$num" | grep -Eq '^[0-9]+$'; then
                             if [ "$num" -gt "$PROJECT_MAX_NUM" ]; then
                               PROJECT_MAX_NUM="$num"
-                              PROJECT_ID="$slug"
+                              PROJECT_SLUG_KEEP="$slug"
+                              PROJECT_NAME_KEEP="$name"
                             fi
                           fi
                           ;;
                         "$REPO_NAME")
                           if [ "$PROJECT_MAX_NUM" -lt 0 ]; then
-                            PROJECT_ID="$slug"
+                            PROJECT_SLUG_KEEP="$slug"
+                            PROJECT_NAME_KEEP="$name"
                           fi
                           ;;
                       esac
-                    done
+                    done <<EOF
+$PROJECT_SLUGS
+EOF
+                    if [ -n "$PROJECT_NAME_KEEP" ]; then
+                      PROJECT_ID="$PROJECT_NAME_KEEP"
+                    else
+                      PROJECT_ID="$REPO_NAME"
+                    fi
                     PROJECT_EXISTS="true"
                   fi
                 fi
@@ -443,32 +462,11 @@ spec:
               refresh_project_list
               if [ "$PROJECT_CODE" = "200" ]; then
                 if [ -n "$PROJECT_SLUGS" ]; then
-                  echo "Detected project repos: $(printf '%s ' $PROJECT_SLUGS)"
-                  for slug in $PROJECT_SLUGS; do
-                    if [ "$slug" = "$PROJECT_ID" ]; then
-                      continue
-                    fi
-                    echo "Deleting duplicate project repo: ${slug}"
-                    DEL_RESPONSE="$(mktemp)"
-                    DEL_CODE="$(curl -sS -o "$DEL_RESPONSE" -w '%{http_code}' \
-                      -H "Authorization: Bearer ${TOKEN}" \
-                      -H "Accept: application/json" \
-                      -X DELETE "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${slug}" || true)"
-                    if [ "$DEL_CODE" = "404" ] || [ "$DEL_CODE" = "405" ]; then
-                      DEL_CODE="$(curl -sS -o "$DEL_RESPONSE" -w '%{http_code}' \
-                        -H "Authorization: Bearer ${TOKEN}" \
-                        -H "Accept: application/json" \
-                        -X DELETE "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${slug}" || true)"
-                    fi
-                    if [ "$DEL_CODE" = "200" ] || [ "$DEL_CODE" = "202" ] || [ "$DEL_CODE" = "204" ]; then
-                      echo "OK: Deleted duplicate project repo: ${slug}"
-                    else
-                      echo "WARN: Failed to delete duplicate project repo ${slug} (HTTP ${DEL_CODE})"
-                      cat "$DEL_RESPONSE"
-                      echo
-                    fi
-                    rm -f "$DEL_RESPONSE"
-                  done
+                  echo "Detected project repos: $(printf '%s ' $(printf '%s\n' "$PROJECT_SLUGS" | cut -d'|' -f1))"
+                  if [ -n "$PROJECT_SLUG_KEEP" ]; then
+                    echo "Keeping project repo: ${PROJECT_SLUG_KEEP} (project name: ${PROJECT_ID})"
+                    cleanup_duplicate_repos "$PROJECT_SLUG_KEEP"
+                  fi
                 fi
               else
                 echo "WARN: Unable to list projects (HTTP ${PROJECT_CODE}); continuing"
