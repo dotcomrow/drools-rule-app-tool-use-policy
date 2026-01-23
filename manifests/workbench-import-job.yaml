@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: Replace=true,Force=true
     argocd.argoproj.io/sync-wave: "25"
-    rules.dotcomrow/repo-version: "1.0.101"
+    rules.dotcomrow/repo-version: "1.0.102"
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 3600
@@ -561,6 +561,7 @@ spec:
                 rm -f "$CLONE_RESPONSE" "$CLONE_HEADERS"
               fi
 
+              PROJECT_ID_URL="$(printf '%s' "$PROJECT_ID" | jq -sRr @uri)"
               if [ "$NEED_PULL" = "true" ]; then
                 if [ "$PROJECT_EXISTS" = "true" ]; then
                   echo "Project exists; attempting git pull: ${PROJECT_ID}"
@@ -569,13 +570,13 @@ spec:
                     -H "Authorization: Bearer ${TOKEN}" \
                     -H "Accept: application/json" \
                     -H "Content-Type: application/json" \
-                    -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${PROJECT_ID}/git/pull" || true)"
+                    -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${PROJECT_ID_URL}/git/pull" || true)"
                   if [ "$PULL_CODE" = "404" ] || [ "$PULL_CODE" = "405" ]; then
                     PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
                       -H "Authorization: Bearer ${TOKEN}" \
                       -H "Accept: application/json" \
                       -H "Content-Type: application/json" \
-                      -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${PROJECT_ID}/git/pull" || true)"
+                      -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${PROJECT_ID_URL}/git/pull" || true)"
                   fi
                   if [ "$PULL_CODE" = "200" ] || [ "$PULL_CODE" = "202" ] || [ "$PULL_CODE" = "204" ]; then
                     echo "OK: Repo pull requested: ${PROJECT_ID}"
@@ -588,13 +589,13 @@ spec:
                           -H "Authorization: Bearer ${TOKEN}" \
                           -H "Accept: application/json" \
                           -H "Content-Type: application/json" \
-                          -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${PROJECT_ID}/git/pull" || true)"
+                          -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${PROJECT_ID_URL}/git/pull" || true)"
                         if [ "$PULL_CODE" = "404" ] || [ "$PULL_CODE" = "405" ]; then
                           PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
                             -H "Authorization: Bearer ${TOKEN}" \
                             -H "Accept: application/json" \
                             -H "Content-Type: application/json" \
-                            -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${PROJECT_ID}/git/pull" || true)"
+                            -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${PROJECT_ID_URL}/git/pull" || true)"
                         fi
                         if [ "$PULL_CODE" = "200" ] || [ "$PULL_CODE" = "202" ] || [ "$PULL_CODE" = "204" ]; then
                           echo "OK: Repo pull requested after registration: ${REPO_NAME}"
