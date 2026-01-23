@@ -76,6 +76,8 @@ spec:
               }
               refresh_project_list() {
                 PROJECT_EXISTS="false"
+                PROJECT_ID="$REPO_NAME"
+                PROJECT_SLUGS=""
                 PROJECT_BODY="$(curl -sS -w '\n%{http_code}' \
                   -H "Authorization: Bearer ${TOKEN}" \
                   -H "Accept: application/json" \
@@ -83,12 +85,43 @@ spec:
                 PROJECT_JSON="$(printf '%s' "$PROJECT_BODY" | sed '$d')"
                 PROJECT_CODE="$(printf '%s' "$PROJECT_BODY" | tail -n 1)"
                 if [ "$PROJECT_CODE" = "200" ]; then
-                  if printf '%s' "$PROJECT_JSON" | jq -e --arg name "$REPO_NAME" '
-                    if type == "array" then
-                      .[] | select(.name == $name or .projectName == $name)
-                    elif type == "object" then
-                      (.projects // .items // .result // [])[] | select(.name == $name or .projectName == $name)
-                    else empty end' >/dev/null 2>&1; then
+                  PROJECT_SLUGS="$(printf '%s' "$PROJECT_JSON" | jq -r --arg repo "$REPO_NAME" '
+                    def items:
+                      if type == "array" then .
+                      elif type == "object" then (.projects // .items // .result // [])
+                      else [] end;
+                    items
+                    | map(.publicURIs // [])
+                    | add
+                    | map(.uri // empty)
+                    | map(select(test(\"/git/[^/]+/\" + $repo)))
+                    | map(sub(\"^.*/git/[^/]+/\"; \"\"))
+                    | unique
+                    | .[]
+                  ' 2>/dev/null || true)"
+                  if [ -n "$PROJECT_SLUGS" ]; then
+                    PROJECT_ID="$(printf '%s' "$PROJECT_JSON" | jq -r --arg repo "$REPO_NAME" '
+                      def items:
+                        if type == "array" then .
+                        elif type == "object" then (.projects // .items // .result // [])
+                        else [] end;
+                      (items
+                        | map(.publicURIs // [])
+                        | add
+                        | map(.uri // empty)
+                        | map(select(test(\"/git/[^/]+/\" + $repo)))
+                        | map(sub(\"^.*/git/[^/]+/\"; \"\"))
+                        | unique) as $slugs
+                      | if ($slugs|length) == 0 then empty
+                        else
+                          ($slugs
+                            | map({slug:., n: (capture($repo + \"-(?<n>[0-9]+)$\")?.n // \"0\") | tonumber})
+                            | sort_by(.n)
+                            | last
+                            | .slug)
+                        end
+                    ' 2>/dev/null || true)"
+                    [ -z "$PROJECT_ID" ] && PROJECT_ID="$REPO_NAME"
                     PROJECT_EXISTS="true"
                   fi
                 fi
@@ -405,38 +438,28 @@ spec:
 
               refresh_project_list
               if [ "$PROJECT_CODE" = "200" ]; then
-                DUP_NAMES="$(printf '%s' "$PROJECT_JSON" | jq -r --arg base "$REPO_NAME" '
-                  def items:
-                    if type == "array" then .
-                    elif type == "object" then (.projects // .items // .result // [])
-                    else [] end;
-                  items
-                  | .[]?
-                  | (.name // .projectName // empty)
-                  | select(startswith($base + "-"))
-                  | ltrimstr($base + "-") as $suffix
-                  | select($suffix | test("^[0-9]+$"))
-                  | ($base + "-" + $suffix)
-                ')"
-                if [ -n "$DUP_NAMES" ]; then
-                  echo "Cleaning duplicate project imports for ${REPO_NAME}"
-                  for DUP in $DUP_NAMES; do
-                    echo "Deleting duplicate project: ${DUP}"
+                if [ -n "$PROJECT_SLUGS" ]; then
+                  echo "Detected project repos: $(printf '%s ' $PROJECT_SLUGS)"
+                  for slug in $PROJECT_SLUGS; do
+                    if [ "$slug" = "$PROJECT_ID" ]; then
+                      continue
+                    fi
+                    echo "Deleting duplicate project repo: ${slug}"
                     DEL_RESPONSE="$(mktemp)"
                     DEL_CODE="$(curl -sS -o "$DEL_RESPONSE" -w '%{http_code}' \
                       -H "Authorization: Bearer ${TOKEN}" \
                       -H "Accept: application/json" \
-                      -X DELETE "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${DUP}" || true)"
+                      -X DELETE "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${slug}" || true)"
                     if [ "$DEL_CODE" = "404" ] || [ "$DEL_CODE" = "405" ]; then
                       DEL_CODE="$(curl -sS -o "$DEL_RESPONSE" -w '%{http_code}' \
                         -H "Authorization: Bearer ${TOKEN}" \
                         -H "Accept: application/json" \
-                        -X DELETE "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${DUP}" || true)"
+                        -X DELETE "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${slug}" || true)"
                     fi
                     if [ "$DEL_CODE" = "200" ] || [ "$DEL_CODE" = "202" ] || [ "$DEL_CODE" = "204" ]; then
-                      echo "OK: Deleted duplicate project: ${DUP}"
+                      echo "OK: Deleted duplicate project repo: ${slug}"
                     else
-                      echo "WARN: Failed to delete duplicate project ${DUP} (HTTP ${DEL_CODE})"
+                      echo "WARN: Failed to delete duplicate project repo ${slug} (HTTP ${DEL_CODE})"
                       cat "$DEL_RESPONSE"
                       echo
                     fi
@@ -468,7 +491,7 @@ spec:
 
               NEED_PULL="false"
               if [ "$PROJECT_EXISTS" = "true" ]; then
-                echo "Project already exists; pulling latest: ${REPO_NAME}"
+                echo "Project already exists; pulling latest: ${PROJECT_ID}"
                 NEED_PULL="true"
               else
                 CLONE_RESPONSE="$(mktemp)"
@@ -535,22 +558,22 @@ spec:
 
               if [ "$NEED_PULL" = "true" ]; then
                 if [ "$PROJECT_EXISTS" = "true" ]; then
-                  echo "Project exists; attempting git pull: ${REPO_NAME}"
+                  echo "Project exists; attempting git pull: ${PROJECT_ID}"
                   PULL_RESPONSE="$(mktemp)"
                   PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
                     -H "Authorization: Bearer ${TOKEN}" \
                     -H "Accept: application/json" \
                     -H "Content-Type: application/json" \
-                    -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${REPO_NAME}/git/pull" || true)"
+                    -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${PROJECT_ID}/git/pull" || true)"
                   if [ "$PULL_CODE" = "404" ] || [ "$PULL_CODE" = "405" ]; then
                     PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
                       -H "Authorization: Bearer ${TOKEN}" \
                       -H "Accept: application/json" \
                       -H "Content-Type: application/json" \
-                      -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${REPO_NAME}/git/pull" || true)"
+                      -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${PROJECT_ID}/git/pull" || true)"
                   fi
                   if [ "$PULL_CODE" = "200" ] || [ "$PULL_CODE" = "202" ] || [ "$PULL_CODE" = "204" ]; then
-                    echo "OK: Repo pull requested: ${REPO_NAME}"
+                    echo "OK: Repo pull requested: ${PROJECT_ID}"
                   else
                     if [ "$PULL_CODE" = "404" ]; then
                       echo "WARN: Repo pull returned 404; waiting for project registration..."
@@ -560,13 +583,13 @@ spec:
                           -H "Authorization: Bearer ${TOKEN}" \
                           -H "Accept: application/json" \
                           -H "Content-Type: application/json" \
-                          -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${REPO_NAME}/git/pull" || true)"
+                          -X POST "${WORKBENCH_BASE}/rest/spaces/${SPACE_NAME}/projects/${PROJECT_ID}/git/pull" || true)"
                         if [ "$PULL_CODE" = "404" ] || [ "$PULL_CODE" = "405" ]; then
                           PULL_CODE="$(curl -sS -o "$PULL_RESPONSE" -w '%{http_code}' \
                             -H "Authorization: Bearer ${TOKEN}" \
                             -H "Accept: application/json" \
                             -H "Content-Type: application/json" \
-                            -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${REPO_NAME}/git/pull" || true)"
+                            -X POST "${WORKBENCH_BASE}/rest/projects/${SPACE_NAME}/${PROJECT_ID}/git/pull" || true)"
                         fi
                         if [ "$PULL_CODE" = "200" ] || [ "$PULL_CODE" = "202" ] || [ "$PULL_CODE" = "204" ]; then
                           echo "OK: Repo pull requested after registration: ${REPO_NAME}"
