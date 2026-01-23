@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: Replace=true,Force=true
     argocd.argoproj.io/sync-wave: "25"
-    rules.dotcomrow/repo-version: "1.0.97"
+    rules.dotcomrow/repo-version: "1.0.98"
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 3600
@@ -117,8 +117,13 @@ spec:
                     done | sort -u)"
                   fi
                   if [ -n "$PROJECT_SLUGS" ]; then
-                    while IFS='|' read -r slug name; do
-                      [ -n "$slug" ] || continue
+                    OLD_IFS="$IFS"
+                    IFS='
+'
+                    for line in $PROJECT_SLUGS; do
+                      [ -n "$line" ] || continue
+                      slug="${line%%|*}"
+                      name="${line#*|}"
                       case "$slug" in
                         "$REPO_NAME"-*)
                           num="${slug#$REPO_NAME-}"
@@ -137,9 +142,8 @@ spec:
                           fi
                           ;;
                       esac
-                    done <<EOF
-$PROJECT_SLUGS
-EOF
+                    done
+                    IFS="$OLD_IFS"
                     if [ -n "$PROJECT_NAME_KEEP" ]; then
                       PROJECT_ID="$PROJECT_NAME_KEEP"
                     else
