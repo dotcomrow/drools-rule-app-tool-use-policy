@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: Replace=true,Force=true
     argocd.argoproj.io/sync-wave: "25"
-    rules.dotcomrow/repo-version: "1.0.69"
+    rules.dotcomrow/repo-version: "1.0.71"
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 3600
