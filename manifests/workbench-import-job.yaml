@@ -37,6 +37,16 @@ spec:
           args:
             - |
               set -euo pipefail
+              hold_on_error() {
+                code=$?
+                if [ "$code" -ne 0 ] && [ "${HOLD_POD:-false}" = "true" ]; then
+                  echo "Job failed with exit code ${code}; holding pod for debugging..."
+                  while true; do sleep 3600; done
+                fi
+                exit "$code"
+              }
+              trap hold_on_error EXIT
+
               apk add --no-cache curl jq
               export VAULT_ADDR="http://vault.vault.svc.cluster.local:8200"
 
