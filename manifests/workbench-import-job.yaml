@@ -429,7 +429,7 @@ spec:
                 --arg name "$REPO_NAME" \
                 --arg description "$REPO_NAME" \
                 --arg gitUrl "$REPO_URL" \
-                '{name:$name, description:$description, gitURL:$gitUrl}')"
+                '{name:$name, description:$description, gitUrl:$gitUrl}')"
               if [ -n "$REPO_BRANCH" ]; then
                 PROJECT_PAYLOAD="$(printf '%s' "$PROJECT_PAYLOAD" | jq --arg branch "$REPO_BRANCH" '. + {branch:$branch}')"
               fi
