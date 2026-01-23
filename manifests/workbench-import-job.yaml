@@ -466,6 +466,22 @@ spec:
                 fi
               fi
 
+              if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}" ]; then
+                for dup in $(find "${NIOGIT_ROOT}/${SPACE_NAME}" -maxdepth 1 -type d -name "${REPO_NAME}-*.git" 2>/dev/null || true); do
+                  [ -d "$dup" ] || continue
+                  base="$(basename "$dup")"
+                  suffix="${base#${REPO_NAME}-}"
+                  suffix="${suffix%.git}"
+                  if printf '%s' "$suffix" | grep -Eq '^[0-9]+$'; then
+                    if rm -rf "$dup"; then
+                      echo "Removed duplicate repo dir after import: ${dup}"
+                    else
+                      echo "WARN: Failed to remove duplicate repo dir after import: ${dup}"
+                    fi
+                  fi
+                done
+              fi
+
               if [ "${HOLD_POD:-false}" = "true" ]; then
                 echo "Holding pod open for debugging..."
                 tail -f /dev/null
