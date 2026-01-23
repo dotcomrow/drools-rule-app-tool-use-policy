@@ -27,6 +27,9 @@ spec:
       containers:
         - name: import
           image: hashicorp/vault:1.15.4
+          env:
+            - name: HOLD_POD
+              value: "true"
           envFrom:
             - configMapRef:
                 name: workbench-import-config-tool-use-policy
@@ -270,14 +273,18 @@ spec:
                 if [ -d "${NIOGIT_ROOT}/${SPACE_NAME}/${REPO_NAME}.git" ]; then
                   NIOGIT_CANONICAL="true"
                 fi
-                for dup in $(find "${NIOGIT_ROOT}/${SPACE_NAME}" -maxdepth 1 -type d -name "${REPO_NAME}-*.git" 2>/dev/null); do
+                DUP_DIRS="$(find "${NIOGIT_ROOT}/${SPACE_NAME}" -maxdepth 1 -type d -name "${REPO_NAME}-*.git" 2>/dev/null || true)"
+                for dup in $DUP_DIRS; do
                   [ -d "$dup" ] || continue
                   base="$(basename "$dup")"
                   suffix="${base#${REPO_NAME}-}"
                   suffix="${suffix%.git}"
                   if printf '%s' "$suffix" | grep -Eq '^[0-9]+$'; then
-                    echo "Removing duplicate repo dir: ${dup}"
-                    rm -rf "$dup"
+                    if rm -rf "$dup"; then
+                      echo "Removed duplicate repo dir: ${dup}"
+                    else
+                      echo "WARN: Failed to remove duplicate repo dir: ${dup}"
+                    fi
                   fi
                 done
               else
@@ -430,6 +437,11 @@ spec:
                   echo "ERROR: Failed to import repo and project not found in space"
                   exit 1
                 fi
+              fi
+
+              if [ "${HOLD_POD:-false}" = "true" ]; then
+                echo "Holding pod open for debugging..."
+                tail -f /dev/null
               fi
           volumeMounts:
             - { name: workbench-niogit, mountPath: /niogit }
