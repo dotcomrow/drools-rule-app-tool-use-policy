@@ -9,5 +9,5 @@ data:
   CONTAINER_ID: "tool-use-policy"
   GROUP_ID: "com.dotcomrow.rules"
   ARTIFACT_ID: "tool-use-policy"
-  VERSION: "1.0.75"
+  VERSION: "1.0.77"
   CONTAINER_STATUS: "STARTED"
