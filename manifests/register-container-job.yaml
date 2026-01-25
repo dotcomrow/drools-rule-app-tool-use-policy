@@ -62,35 +62,55 @@ spec:
                 echo "Keycloak client secret missing"
               fi
               TOKEN=""
+              TOKEN_EXPIRES_AT=""
               if [ -z "$KC_CLIENT_ID" ] || [ -z "$KC_CLIENT_SECRET" ]; then
                 echo "ERROR: Missing Workbench Keycloak client credentials in Vault"
                 exit 1
               fi
               TOKEN_URL="https://auth.suncoast.systems/realms/internal/protocol/openid-connect/token"
-              TOKEN_RESPONSE="$(curl -sS -w '\n%{http_code}' \
-                -H "Content-Type: application/x-www-form-urlencoded" \
-                --data-urlencode "grant_type=client_credentials" \
-                --data-urlencode "client_id=${KC_CLIENT_ID}" \
-                --data-urlencode "client_secret=${KC_CLIENT_SECRET}" \
-                "$TOKEN_URL" || true)"
-              TOKEN_BODY="$(printf '%s' "$TOKEN_RESPONSE" | sed '$d')"
-              TOKEN_CODE="$(printf '%s' "$TOKEN_RESPONSE" | tail -n 1)"
-              if [ "$TOKEN_CODE" = "200" ]; then
-                TOKEN="$(printf '%s' "$TOKEN_BODY" | jq -r '.access_token // empty')"
-                if [ -n "$TOKEN" ]; then
-                  echo "Keycloak token acquired"
+              TOKEN_REFRESH_SKEW="${TOKEN_REFRESH_SKEW:-30}"
+              fetch_token() {
+                TOKEN_RESPONSE="$(curl -sS -w '\n%{http_code}' \
+                  -H "Content-Type: application/x-www-form-urlencoded" \
+                  --data-urlencode "grant_type=client_credentials" \
+                  --data-urlencode "client_id=${KC_CLIENT_ID}" \
+                  --data-urlencode "client_secret=${KC_CLIENT_SECRET}" \
+                  "$TOKEN_URL" || true)"
+                TOKEN_BODY="$(printf '%s' "$TOKEN_RESPONSE" | sed '$d')"
+                TOKEN_CODE="$(printf '%s' "$TOKEN_RESPONSE" | tail -n 1)"
+                if [ "$TOKEN_CODE" = "200" ]; then
+                  TOKEN="$(printf '%s' "$TOKEN_BODY" | jq -r '.access_token // empty')"
+                  EXPIRES_IN="$(printf '%s' "$TOKEN_BODY" | jq -r '.expires_in // empty')"
+                  if [ -z "${EXPIRES_IN:-}" ] || ! printf '%s' "$EXPIRES_IN" | grep -q '^[0-9][0-9]*$'; then
+                    EXPIRES_IN="300"
+                  fi
+                  now="$(date +%s)"
+                  TOKEN_EXPIRES_AT=$((now + EXPIRES_IN - TOKEN_REFRESH_SKEW))
+                  if [ "$TOKEN_EXPIRES_AT" -le "$now" ]; then
+                    TOKEN_EXPIRES_AT=$((now + EXPIRES_IN))
+                  fi
+                  if [ -n "$TOKEN" ]; then
+                    echo "Keycloak token acquired (expires in ${EXPIRES_IN}s)"
+                  else
+                    echo "Keycloak token missing in response"
+                  fi
                 else
-                  echo "Keycloak token missing in response"
+                  TOKEN_ERROR="$(printf '%s' "$TOKEN_BODY" | jq -r '.error // empty')"
+                  TOKEN_ERROR_DESC="$(printf '%s' "$TOKEN_BODY" | jq -r '.error_description // empty')"
+                  echo "Keycloak token request failed: HTTP ${TOKEN_CODE} ${TOKEN_ERROR}${TOKEN_ERROR_DESC:+ - }${TOKEN_ERROR_DESC}"
                 fi
-              else
-                TOKEN_ERROR="$(printf '%s' "$TOKEN_BODY" | jq -r '.error // empty')"
-                TOKEN_ERROR_DESC="$(printf '%s' "$TOKEN_BODY" | jq -r '.error_description // empty')"
-                echo "Keycloak token request failed: HTTP ${TOKEN_CODE} ${TOKEN_ERROR}${TOKEN_ERROR_DESC:+ - }${TOKEN_ERROR_DESC}"
-              fi
-              if [ -z "$TOKEN" ]; then
-                echo "ERROR: Could not obtain Keycloak token"
-                exit 1
-              fi
+                if [ -z "$TOKEN" ]; then
+                  echo "ERROR: Could not obtain Keycloak token"
+                  exit 1
+                fi
+              }
+              ensure_token() {
+                now="$(date +%s)"
+                if [ -z "${TOKEN:-}" ] || [ -z "${TOKEN_EXPIRES_AT:-}" ] || [ "$now" -ge "$TOKEN_EXPIRES_AT" ]; then
+                  fetch_token
+                fi
+              }
+              fetch_token
 
               LOG_HTTP="${LOG_HTTP:-true}"
               LOG_HTTP_ONLY_ERRORS="${LOG_HTTP_ONLY_ERRORS:-true}"
@@ -173,6 +193,7 @@ spec:
               KIE_SERVER_WAIT_INTERVAL="${KIE_SERVER_WAIT_INTERVAL:-5}"
 
               fetch_servers() {
+                ensure_token
                 SERVERS_HEADERS="$(mktemp)"
                 SERVERS_BODY_FILE="$(mktemp)"
                 SERVERS_CODE="$(curl -sS -D "$SERVERS_HEADERS" -o "$SERVERS_BODY_FILE" -w "%{http_code}" \
@@ -182,6 +203,19 @@ spec:
                 SERVERS_JSON="$(cat "$SERVERS_BODY_FILE")"
                 log_http_response "GET" "${WORKBENCH_CONTROLLER_URL}/management/servers" "$SERVERS_CODE" "$SERVERS_HEADERS" "$SERVERS_BODY_FILE"
                 rm -f "$SERVERS_HEADERS" "$SERVERS_BODY_FILE"
+                if [ "$SERVERS_CODE" = "401" ]; then
+                  echo "Token rejected by controller; refreshing token and retrying." >&2
+                  fetch_token
+                  SERVERS_HEADERS="$(mktemp)"
+                  SERVERS_BODY_FILE="$(mktemp)"
+                  SERVERS_CODE="$(curl -sS -D "$SERVERS_HEADERS" -o "$SERVERS_BODY_FILE" -w "%{http_code}" \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Accept: application/json" \
+                    "${WORKBENCH_CONTROLLER_URL}/management/servers" || true)"
+                  SERVERS_JSON="$(cat "$SERVERS_BODY_FILE")"
+                  log_http_response "GET" "${WORKBENCH_CONTROLLER_URL}/management/servers" "$SERVERS_CODE" "$SERVERS_HEADERS" "$SERVERS_BODY_FILE"
+                  rm -f "$SERVERS_HEADERS" "$SERVERS_BODY_FILE"
+                fi
               }
 
               echo "Waiting for Workbench controller..."
@@ -347,6 +381,7 @@ spec:
               register_request() {
                 method="$1"
                 url="$2"
+                ensure_token
                 code="$(curl -sS -D "$RESPONSE_HEADERS" -o "$RESPONSE_FILE" -w "%{http_code}" \
                   -H "Authorization: Bearer ${TOKEN}" \
                   -H "Accept: application/json" \
@@ -356,6 +391,19 @@ spec:
                   -H "KIE-Server-Id: ${KIE_SERVER_ID}" \
                   -X "$method" "$url" \
                   --data-binary "${payload}" || true)"
+                if [ "$code" = "401" ]; then
+                  echo "Token rejected by controller; refreshing token and retrying." >&2
+                  fetch_token
+                  code="$(curl -sS -D "$RESPONSE_HEADERS" -o "$RESPONSE_FILE" -w "%{http_code}" \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Accept: application/json" \
+                    -H "Content-Type: application/json" \
+                    -H "X-KIE-ContentType: JSON" \
+                    -H "X-KIE-Server-Id: ${KIE_SERVER_ID}" \
+                    -H "KIE-Server-Id: ${KIE_SERVER_ID}" \
+                    -X "$method" "$url" \
+                    --data-binary "${payload}" || true)"
+                fi
                 log_http_response "$method" "$url" "$code" "$RESPONSE_HEADERS" "$RESPONSE_FILE"
                 echo "$code"
               }
@@ -382,6 +430,7 @@ spec:
 
               delete_container_spec() {
                 url="${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
+                ensure_token
                 del_headers="$(mktemp)"
                 del_body="$(mktemp)"
                 code="$(curl -sS -D "$del_headers" -o "$del_body" -w "%{http_code}" \
@@ -391,6 +440,17 @@ spec:
                   -H "X-KIE-Server-Id: ${KIE_SERVER_ID}" \
                   -H "KIE-Server-Id: ${KIE_SERVER_ID}" \
                   -X DELETE "$url" || true)"
+                if [ "$code" = "401" ]; then
+                  echo "Token rejected by controller; refreshing token and retrying." >&2
+                  fetch_token
+                  code="$(curl -sS -D "$del_headers" -o "$del_body" -w "%{http_code}" \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Accept: application/json" \
+                    -H "X-KIE-ContentType: JSON" \
+                    -H "X-KIE-Server-Id: ${KIE_SERVER_ID}" \
+                    -H "KIE-Server-Id: ${KIE_SERVER_ID}" \
+                    -X DELETE "$url" || true)"
+                fi
                 log_http_response "DELETE" "$url" "$code" "$del_headers" "$del_body"
                 rm -f "$del_headers" "$del_body"
                 echo "Delete ${url} -> HTTP ${code}" >&2
@@ -421,6 +481,7 @@ spec:
                 exit 1
               fi
 
+              ensure_token
               VERIFY_HEADERS="$(mktemp)"
               VERIFY_BODY_FILE="$(mktemp)"
               VERIFY_CODE="$(curl -sS -D "$VERIFY_HEADERS" -o "$VERIFY_BODY_FILE" -w "%{http_code}" \
@@ -428,6 +489,15 @@ spec:
                 -H "Accept: application/json" \
                 "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" || true)"
               VERIFY_JSON="$(cat "$VERIFY_BODY_FILE")"
+              if [ "$VERIFY_CODE" = "401" ]; then
+                echo "Token rejected by controller; refreshing token and retrying." >&2
+                fetch_token
+                VERIFY_CODE="$(curl -sS -D "$VERIFY_HEADERS" -o "$VERIFY_BODY_FILE" -w "%{http_code}" \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  -H "Accept: application/json" \
+                  "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" || true)"
+                VERIFY_JSON="$(cat "$VERIFY_BODY_FILE")"
+              fi
               log_http_response "GET" "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}" "$VERIFY_CODE" "$VERIFY_HEADERS" "$VERIFY_BODY_FILE"
               rm -f "$VERIFY_HEADERS" "$VERIFY_BODY_FILE"
               if [ "$VERIFY_CODE" = "200" ]; then
