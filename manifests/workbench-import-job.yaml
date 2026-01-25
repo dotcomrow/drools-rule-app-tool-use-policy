@@ -215,12 +215,12 @@ spec:
                 echo "ERROR: Missing Workbench Keycloak client credentials in Vault"
                 exit 1
               fi
-              if [ -z "$CONTROLLER_USER" ] || [ -z "$CONTROLLER_PASS" ]; then
-                echo "ERROR: Missing controller credentials in Vault"
-                exit 1
-              fi
               if [ -z "$SPACE_OWNER" ]; then
-                SPACE_OWNER="$CONTROLLER_USER"
+                if [ -n "$CONTROLLER_USER" ]; then
+                  SPACE_OWNER="$CONTROLLER_USER"
+                else
+                  SPACE_OWNER="service-account-${KC_CLIENT_ID}"
+                fi
               fi
 
               GH_USER_JSON="$(vault kv get -format=json secret/k8s-rules-engine-github-packages-username)"
@@ -235,11 +235,9 @@ spec:
               TOKEN_URL="https://auth.suncoast.systems/realms/internal/protocol/openid-connect/token"
               TOKEN_RESPONSE="$(curl -sS -w '\n%{http_code}' \
                 -H "Content-Type: application/x-www-form-urlencoded" \
-                --data-urlencode "grant_type=password" \
+                --data-urlencode "grant_type=client_credentials" \
                 --data-urlencode "client_id=${KC_CLIENT_ID}" \
                 --data-urlencode "client_secret=${KC_CLIENT_SECRET}" \
-                --data-urlencode "username=${CONTROLLER_USER}" \
-                --data-urlencode "password=${CONTROLLER_PASS}" \
                 "$TOKEN_URL" || true)"
               TOKEN_BODY="$(printf '%s' "$TOKEN_RESPONSE" | sed '$d')"
               TOKEN_CODE="$(printf '%s' "$TOKEN_RESPONSE" | tail -n 1)"
