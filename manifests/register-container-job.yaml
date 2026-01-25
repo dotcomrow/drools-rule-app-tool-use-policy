@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "20"
     argocd.argoproj.io/sync-options: Force=true,Replace=true
-    rules.dotcomrow/container-version: "1.0.123"
+    rules.dotcomrow/container-version: "1.0.125"
 spec:
   backoffLimit: 3
   template:

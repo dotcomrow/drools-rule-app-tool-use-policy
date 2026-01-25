@@ -9,7 +9,7 @@ data:
   CONTAINER_ID: "tool-use-policy"
   GROUP_ID: "com.dotcomrow.rules"
   ARTIFACT_ID: "tool-use-policy"
-  VERSION: "1.0.123"
+  VERSION: "1.0.125"
   CONTAINER_STATUS: "STARTED"
   LOG_HTTP: "true"
   LOG_HTTP_ONLY_ERRORS: "false"
