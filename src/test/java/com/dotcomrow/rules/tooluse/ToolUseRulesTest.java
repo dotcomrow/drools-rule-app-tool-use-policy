@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNotNull;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.junit.Test;
 import org.kie.api.KieServices;
 import org.kie.api.runtime.KieContainer;
@@ -34,12 +35,13 @@ public class ToolUseRulesTest {
     KieContainer container = kieServices.getKieClasspathContainer();
     KieSession session = container.newKieSession("tool-use-ksession");
     try {
-      session.insert(request);
-      session.fireAllRules();
-      Collection<ToolUseDecision> decisions =
-          (Collection<ToolUseDecision>) (Collection<?>) session.getObjects(
-              object -> object instanceof ToolUseDecision);
-      List<ToolUseDecision> list = List.copyOf(decisions);
+        session.insert(request);
+        session.fireAllRules();
+        Collection<?> objs = session.getObjects(object -> object instanceof ToolUseDecision);
+        List<ToolUseDecision> list = objs.stream()
+          .filter(ToolUseDecision.class::isInstance)
+          .map(ToolUseDecision.class::cast)
+          .collect(Collectors.toUnmodifiableList());
       assertNotNull(list);
       return list.get(0);
     } finally {
