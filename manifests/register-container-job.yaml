@@ -36,13 +36,15 @@ spec:
 
               WORKBENCH_CONTROLLER_URL="${WORKBENCH_CONTROLLER_URL:-}"
               KIE_SERVER_ID="${KIE_SERVER_ID:-}"
+              KIE_SERVER_IDS="${KIE_SERVER_IDS:-}"
+              KIE_SERVER_ID_PREFIX="${KIE_SERVER_ID_PREFIX:-}"
               CONTAINER_ID="${CONTAINER_ID:-}"
               GROUP_ID="${GROUP_ID:-}"
               ARTIFACT_ID="${ARTIFACT_ID:-}"
               VERSION="${VERSION:-}"
               CONTAINER_STATUS="${CONTAINER_STATUS:-STARTED}"
-              if [ -z "$WORKBENCH_CONTROLLER_URL" ] || [ -z "$KIE_SERVER_ID" ] || [ -z "$CONTAINER_ID" ] || [ -z "$GROUP_ID" ] || [ -z "$ARTIFACT_ID" ] || [ -z "$VERSION" ]; then
-                echo "ERROR: Missing registration config (WORKBENCH_CONTROLLER_URL, KIE_SERVER_ID, CONTAINER_ID, GROUP_ID, ARTIFACT_ID, VERSION)"
+              if [ -z "$WORKBENCH_CONTROLLER_URL" ] || [ -z "$CONTAINER_ID" ] || [ -z "$GROUP_ID" ] || [ -z "$ARTIFACT_ID" ] || [ -z "$VERSION" ] || ( [ -z "$KIE_SERVER_ID" ] && [ -z "$KIE_SERVER_IDS" ] ); then
+                echo "ERROR: Missing registration config (WORKBENCH_CONTROLLER_URL, KIE_SERVER_ID or KIE_SERVER_IDS, CONTAINER_ID, GROUP_ID, ARTIFACT_ID, VERSION)"
                 exit 1
               fi
 
@@ -130,15 +132,15 @@ spec:
                     2*|3*) return 0 ;;
                   esac
                 fi
-                echo "HTTP ${method} ${url} -> ${code}"
+                echo "HTTP ${method} ${url} -> ${code}" >&2
                 if [ -n "$headers_file" ] && [ -f "$headers_file" ]; then
-                  echo "Response headers:"
-                  sed -e 's/^Set-Cookie:.*/Set-Cookie: REDACTED/' "$headers_file" | tr -d '\r'
+                  echo "Response headers:" >&2
+                  sed -e 's/^Set-Cookie:.*/Set-Cookie: REDACTED/' "$headers_file" | tr -d '\r' >&2
                 fi
                 if [ -n "$body_file" ] && [ -f "$body_file" ]; then
-                  echo "Response body (first ${LOG_HTTP_BODY_MAX} bytes):"
-                  head -c "$LOG_HTTP_BODY_MAX" "$body_file"
-                  echo
+                  echo "Response body (first ${LOG_HTTP_BODY_MAX} bytes):" >&2
+                  head -c "$LOG_HTTP_BODY_MAX" "$body_file" >&2
+                  echo >&2
                 fi
               }
 
@@ -235,6 +237,38 @@ spec:
                 sleep "$CONTROLLER_WAIT_INTERVAL"
               done
 
+              TARGET_SERVER_IDS=""
+              if [ -n "$KIE_SERVER_IDS" ]; then
+                TARGET_SERVER_IDS="$KIE_SERVER_IDS"
+              elif [ "${KIE_SERVER_ID}" = "auto" ] || [ -z "$KIE_SERVER_ID" ]; then
+                fetch_servers
+                TARGET_SERVER_IDS="$(printf '%s' "$SERVERS_JSON" | jq -r '
+                  def templates:
+                    if type=="object" then
+                      (.servers // .items // .result // .serverTemplate // .serverTemplates // .["server-template"] // [])
+                    else [] end;
+                  if type=="array" then
+                    .[]
+                  else
+                    templates[]
+                  end
+                  | (.serverId // .["server-id"] // .id // .["server_id"])
+                ' | tr '\n' ' ')"
+                if [ -n "$KIE_SERVER_ID_PREFIX" ]; then
+                  TARGET_SERVER_IDS="$(printf '%s' "$TARGET_SERVER_IDS" | tr ' ' '\n' | grep -E "^${KIE_SERVER_ID_PREFIX}" | tr '\n' ' ')"
+                fi
+              else
+                TARGET_SERVER_IDS="$KIE_SERVER_ID"
+              fi
+              if [ -z "$TARGET_SERVER_IDS" ]; then
+                echo "ERROR: No KIE server ids resolved for registration"
+                exit 1
+              fi
+              echo "Target KIE server ids: ${TARGET_SERVER_IDS}"
+
+              for KIE_SERVER_ID in $TARGET_SERVER_IDS; do
+                echo "----- Registering container for KIE server ${KIE_SERVER_ID} -----"
+
               echo "Waiting for KIE server registration..."
               WAIT_START="$(date +%s)"
               while true; do
@@ -304,7 +338,7 @@ spec:
                     echo "Container already registered with status: ${CONTAINER_STATUS_FOUND}"
                   fi
                   if [ "$CONTAINER_STATUS_FOUND" = "$CONTAINER_STATUS" ] && [ "$CONTAINER_VERSION_FOUND" = "$VERSION" ]; then
-                    exit 0
+                    continue
                   fi
                   echo "Container version/status differs; updating registration."
                 fi
@@ -420,7 +454,7 @@ spec:
 
               register_container() {
                 HTTP_CODE="$(register_request POST "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
-                if [ "$HTTP_CODE" = "405" ]; then
+                if [ "$HTTP_CODE" = "405" ] || [ "$HTTP_CODE" = "404" ]; then
                   echo "Controller did not accept POST /management/servers/.../containers/{id}; trying PUT" >&2
                   print_allow "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}"
                   HTTP_CODE="$(register_request PUT "${WORKBENCH_CONTROLLER_URL}/management/servers/${KIE_SERVER_ID}/containers/${CONTAINER_ID}")"
@@ -514,10 +548,4 @@ spec:
                 echo "WARNING: Could not verify container spec (HTTP ${VERIFY_CODE})" >&2
               fi
               rm -f "$RESPONSE_FILE" "$RESPONSE_HEADERS"
-          resources:
-            requests:
-              cpu: "50m"
-              memory: "128Mi"
-            limits:
-              cpu: "250m"
-              memory: "256Mi"
+              done

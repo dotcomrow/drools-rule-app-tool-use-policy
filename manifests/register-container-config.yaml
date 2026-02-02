@@ -5,7 +5,8 @@ metadata:
   namespace: drools
 data:
   WORKBENCH_CONTROLLER_URL: "http://kie-workbench.drools.svc.cluster.local:8080/business-central/rest/controller"
-  KIE_SERVER_ID: "kie-server"
+  KIE_SERVER_ID: "auto"
+  KIE_SERVER_ID_PREFIX: "kie-server-"
   CONTAINER_ID: "tool-use-policy"
   GROUP_ID: "com.dotcomrow.rules"
   ARTIFACT_ID: "tool-use-policy"
