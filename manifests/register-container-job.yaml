@@ -38,11 +38,16 @@ spec:
               KIE_SERVER_ID="${KIE_SERVER_ID:-}"
               KIE_SERVER_IDS="${KIE_SERVER_IDS:-}"
               KIE_SERVER_ID_PREFIX="${KIE_SERVER_ID_PREFIX:-}"
+              KIE_SERVER_MIN_COUNT="${KIE_SERVER_MIN_COUNT:-0}"
               CONTAINER_ID="${CONTAINER_ID:-}"
               GROUP_ID="${GROUP_ID:-}"
               ARTIFACT_ID="${ARTIFACT_ID:-}"
               VERSION="${VERSION:-}"
               CONTAINER_STATUS="${CONTAINER_STATUS:-STARTED}"
+              if ! printf '%s' "$KIE_SERVER_MIN_COUNT" | grep -q '^[0-9][0-9]*$'; then
+                echo "ERROR: KIE_SERVER_MIN_COUNT must be a non-negative integer"
+                exit 1
+              fi
               if [ -z "$WORKBENCH_CONTROLLER_URL" ] || [ -z "$CONTAINER_ID" ] || [ -z "$GROUP_ID" ] || [ -z "$ARTIFACT_ID" ] || [ -z "$VERSION" ] || ( [ -z "$KIE_SERVER_ID" ] && [ -z "$KIE_SERVER_IDS" ] ); then
                 echo "ERROR: Missing registration config (WORKBENCH_CONTROLLER_URL, KIE_SERVER_ID or KIE_SERVER_IDS, CONTAINER_ID, GROUP_ID, ARTIFACT_ID, VERSION)"
                 exit 1
@@ -219,6 +224,33 @@ spec:
                   rm -f "$SERVERS_HEADERS" "$SERVERS_BODY_FILE"
                 fi
               }
+              resolve_server_ids() {
+                local ids
+                ids="$(printf '%s' "$SERVERS_JSON" | jq -r '
+                  def templates:
+                    if type=="object" then
+                      (.servers // .items // .result // .serverTemplate // .serverTemplates // .["server-template"] // [])
+                    else [] end;
+                  if type=="array" then
+                    .[]
+                  else
+                    templates[]
+                  end
+                  | (.serverId // .["server-id"] // .id // .["server_id"])
+                ' | tr '\n' ' ')"
+                if [ -n "$KIE_SERVER_ID_PREFIX" ]; then
+                  ids="$(printf '%s' "$ids" | tr ' ' '\n' | grep -E "^${KIE_SERVER_ID_PREFIX}" | tr '\n' ' ')"
+                fi
+                printf '%s' "$ids"
+              }
+              count_server_ids() {
+                local ids="${1:-}"
+                if [ -z "$ids" ]; then
+                  printf '0'
+                  return 0
+                fi
+                printf '%s' "$ids" | tr ' ' '\n' | awk 'NF{count++} END {print count+0}'
+              }
 
               echo "Waiting for Workbench controller..."
               WAIT_START="$(date +%s)"
@@ -241,21 +273,31 @@ spec:
               if [ -n "$KIE_SERVER_IDS" ]; then
                 TARGET_SERVER_IDS="$KIE_SERVER_IDS"
               elif [ "${KIE_SERVER_ID}" = "auto" ] || [ -z "$KIE_SERVER_ID" ]; then
-                fetch_servers
-                TARGET_SERVER_IDS="$(printf '%s' "$SERVERS_JSON" | jq -r '
-                  def templates:
-                    if type=="object" then
-                      (.servers // .items // .result // .serverTemplate // .serverTemplates // .["server-template"] // [])
-                    else [] end;
-                  if type=="array" then
-                    .[]
-                  else
-                    templates[]
-                  end
-                  | (.serverId // .["server-id"] // .id // .["server_id"])
-                ' | tr '\n' ' ')"
-                if [ -n "$KIE_SERVER_ID_PREFIX" ]; then
-                  TARGET_SERVER_IDS="$(printf '%s' "$TARGET_SERVER_IDS" | tr ' ' '\n' | grep -E "^${KIE_SERVER_ID_PREFIX}" | tr '\n' ' ')"
+                if [ "$KIE_SERVER_MIN_COUNT" -gt 0 ]; then
+                  echo "Waiting for at least ${KIE_SERVER_MIN_COUNT} KIE server(s) to register..."
+                  WAIT_START="$(date +%s)"
+                  while true; do
+                    fetch_servers
+                    if [ "$SERVERS_CODE" = "200" ]; then
+                      TARGET_SERVER_IDS="$(resolve_server_ids)"
+                      FOUND_COUNT="$(count_server_ids "$TARGET_SERVER_IDS")"
+                      if [ "$FOUND_COUNT" -ge "$KIE_SERVER_MIN_COUNT" ]; then
+                        break
+                      fi
+                    else
+                      FOUND_COUNT="0"
+                    fi
+                    now="$(date +%s)"
+                    if [ $((now - WAIT_START)) -ge "$KIE_SERVER_WAIT_SECONDS" ]; then
+                      echo "ERROR: Only ${FOUND_COUNT} KIE server(s) registered after ${KIE_SERVER_WAIT_SECONDS}s (last HTTP ${SERVERS_CODE})"
+                      exit 1
+                    fi
+                    echo "Waiting for ${KIE_SERVER_MIN_COUNT} KIE server(s) (currently ${FOUND_COUNT}); retrying in ${KIE_SERVER_WAIT_INTERVAL}s..."
+                    sleep "$KIE_SERVER_WAIT_INTERVAL"
+                  done
+                else
+                  fetch_servers
+                  TARGET_SERVER_IDS="$(resolve_server_ids)"
                 fi
               else
                 TARGET_SERVER_IDS="$KIE_SERVER_ID"
