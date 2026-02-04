@@ -546,7 +546,7 @@ spec:
 
               candidate = revision or version or ""
               if not prefix:
-                  match = re.match(r"(\\d+)\\.(\\d+)", candidate)
+                  match = re.match(r"(\d+)\.(\d+)", candidate)
                   if match:
                       prefix = f"{match.group(1)}.{match.group(2)}."
               if not prefix:

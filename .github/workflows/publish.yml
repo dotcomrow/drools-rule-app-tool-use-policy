@@ -68,7 +68,7 @@ jobs:
             resolved = revision
           else:
             candidate = revision or version or ""
-            match = re.match(r"(\\d+)\\.(\\d+)", candidate)
+            match = re.match(r"(\d+)\.(\d+)", candidate)
             if not match:
               sys.exit("Unable to derive version prefix from pom.xml; set <revision> or use a literal <version>.")
             prefix = f\"{match.group(1)}.{match.group(2)}.\"
