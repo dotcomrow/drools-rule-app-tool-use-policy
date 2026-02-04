@@ -567,7 +567,7 @@ spec:
                   sys.exit(0)
               print(prefix + count)
               PY
-)"
+                )"
                 fi
                 if [ -z "$desired" ]; then
                   echo "WARN: Unable to resolve repo version; skipping pom version update."
