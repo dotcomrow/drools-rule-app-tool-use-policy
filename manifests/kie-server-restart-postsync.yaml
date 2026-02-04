@@ -18,11 +18,15 @@ spec:
       restartPolicy: Never
       containers:
         - name: restart
-          image: rancher/kubectl:v1.28.9
+          image: alpine:3.18
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -euo pipefail
+              apk add --no-cache curl ca-certificates >/dev/null
+              KUBECTL_VERSION="${KUBECTL_VERSION:-v1.28.9}"
+              curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+              chmod +x /usr/local/bin/kubectl
               echo "Restarting KIE server StatefulSet to pick up Maven repo config..."
               kubectl -n drools rollout restart statefulset/kie-server
               kubectl -n drools rollout status statefulset/kie-server --timeout=15m
