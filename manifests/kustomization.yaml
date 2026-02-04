@@ -4,5 +4,6 @@ resources:
   - maven-repo-config.yaml
   - register-container-config.yaml
   - register-container-job.yaml
+  - kie-server-restart-postsync.yaml
   - workbench-import-config.yaml
   - workbench-import-job.yaml
