@@ -286,7 +286,7 @@ spec:
                   sys.exit(0)
               print(prefix + count)
               PY
-)"
+                )"
                 rm -rf "$tmpdir"
                 printf '%s' "$version"
               }
