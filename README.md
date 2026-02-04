@@ -11,6 +11,20 @@ risk and context. The rules produce a ToolUseDecision with ALLOW, REVIEW, or DEN
 mvn -q -DskipTests package
 ```
 
+## Settings
+Run the generator to list all available import/register settings and their defaults:
+
+```
+python scripts/generate-settings-doc.py
+```
+
+Outputs:
+- `docs/settings.md`
+- `manifests/workbench-import-config.full.yaml`
+- `manifests/register-container-config.full.yaml`
+
+Leaving `REPO_VERSION`/`VERSION` empty (or `auto`) resolves the version from `pom.xml` and git history.
+
 ## Publish to GitHub Packages
 Update the owner/repo in pom.xml if needed, then configure Maven credentials:
 

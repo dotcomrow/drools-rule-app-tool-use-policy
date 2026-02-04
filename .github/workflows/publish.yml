@@ -22,7 +22,67 @@ jobs:
           fetch-depth: 0
 
       - name: Compute version
-        run: echo "REVISION=1.0.$(git rev-list --count HEAD)" >> $GITHUB_ENV
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+
+          def find_text(elem, tag, ns):
+            if ns:
+              found = elem.find(f"{{{ns}}}{tag}")
+            else:
+              found = elem.find(tag)
+            if found is not None and found.text:
+              return found.text.strip()
+            return ""
+
+          root = ET.parse("pom.xml").getroot()
+          ns = ""
+          if root.tag.startswith("{"):
+            ns = root.tag.split("}")[0].strip("{")
+
+          version = find_text(root, "version", ns)
+          if not version:
+            parent = root.find(f"{{{ns}}}parent") if ns else root.find("parent")
+            if parent is not None:
+              version = find_text(parent, "version", ns)
+
+          revision = ""
+          props = root.find(f"{{{ns}}}properties") if ns else root.find("properties")
+          if props is not None:
+            rev_el = props.find(f"{{{ns}}}revision") if ns else props.find("revision")
+            if rev_el is not None and rev_el.text:
+              revision = rev_el.text.strip()
+
+          def is_literal(val):
+            return bool(val) and "${" not in val
+
+          resolved = ""
+          if is_literal(version):
+            resolved = version
+          elif is_literal(revision) and not revision.endswith("-SNAPSHOT"):
+            resolved = revision
+          else:
+            candidate = revision or version or ""
+            match = re.match(r"(\\d+)\\.(\\d+)", candidate)
+            if not match:
+              sys.exit("Unable to derive version prefix from pom.xml; set <revision> or use a literal <version>.")
+            prefix = f\"{match.group(1)}.{match.group(2)}.\"
+            count = subprocess.check_output(["git", "rev-list", "--count", "HEAD"], text=True).strip()
+            if not count:
+              sys.exit("Unable to compute git commit count.")
+            resolved = prefix + count
+
+          if not resolved:
+            sys.exit("Unable to resolve version from pom.xml.")
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+            handle.write(f"REVISION={resolved}\\n")
+          PY
 
       - name: Set up Java
         uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e
@@ -37,42 +97,3 @@ jobs:
         run: mvn -B -ntp -Drevision=$REVISION deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Bump container version manifest
-        if: github.ref_name == 'prod' && github.actor != 'github-actions[bot]'
-        env:
-          VERSION: ${{ env.REVISION }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          version = os.environ.get("VERSION")
-          if not version:
-            raise SystemExit("VERSION not set")
-
-          updates = {
-            Path("manifests/register-container-config.yaml"): r'^(\s*VERSION:\s*).*$',
-            Path("manifests/register-container-job.yaml"): r'^(\s*rules\.dotcomrow/container-version:\s*).*$',
-            Path("manifests/workbench-import-job.yaml"): r'^(\s*rules\.dotcomrow/repo-version:\s*).*$',
-          }
-          for path, pattern in updates.items():
-            text = path.read_text()
-            replacement = r'\g<1>"{0}"'.format(version)
-            new_text, count = re.subn(pattern, replacement, text, flags=re.MULTILINE)
-            if count == 0:
-              raise SystemExit(f"Pattern not found in {path}")
-            if new_text != text:
-              path.write_text(new_text)
-          PY
-          if git diff --quiet; then
-            echo "Version already up to date; no commit needed."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add manifests/register-container-config.yaml manifests/register-container-job.yaml manifests/workbench-import-job.yaml
-          git commit -m "chore: bump container version to ${VERSION} [skip ci]"
-          git push origin HEAD:prod
