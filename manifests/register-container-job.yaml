@@ -46,6 +46,9 @@ spec:
               ARTIFACT_ID="${ARTIFACT_ID:-}"
               VERSION="${VERSION:-}"
               VERSION_PREFIX="${VERSION_PREFIX:-}"
+              MAVEN_REPO_URL="${MAVEN_REPO_URL:-}"
+              REQUIRE_PUBLISHED_VERSION="${REQUIRE_PUBLISHED_VERSION:-false}"
+              FALLBACK_TO_LATEST_PUBLISHED="${FALLBACK_TO_LATEST_PUBLISHED:-true}"
               CLEANUP_OLD_VERSIONS="${CLEANUP_OLD_VERSIONS:-false}"
               FORCE_REDEPLOY="${FORCE_REDEPLOY:-false}"
               CONTAINER_STATUS="${CONTAINER_STATUS:-STARTED}"
@@ -302,6 +305,74 @@ spec:
               if [ -z "$VERSION" ]; then
                 echo "ERROR: VERSION not set and could not be resolved. Set VERSION or configure REPO_URL/REPO_BRANCH." >&2
                 exit 1
+              fi
+
+              fetch_maven_metadata() {
+                if [ -z "${MAVEN_REPO_URL:-}" ] || [ -z "${GROUP_ID:-}" ] || [ -z "${ARTIFACT_ID:-}" ]; then
+                  return 1
+                fi
+                repo="${MAVEN_REPO_URL%/}"
+                group_path="$(printf '%s' "$GROUP_ID" | tr '.' '/')"
+                metadata_url="${repo}/${group_path}/${ARTIFACT_ID}/maven-metadata.xml"
+                echo "Checking published versions at ${metadata_url}" >&2
+                auth_arg=""
+                if [ -n "${GH_USER:-}" ] && [ -n "${GH_TOKEN:-}" ]; then
+                  auth_arg="-u ${GH_USER}:${GH_TOKEN}"
+                fi
+                metadata="$(curl -fsSL $auth_arg "$metadata_url" || true)"
+                if [ -z "$metadata" ]; then
+                  echo "WARN: Unable to fetch maven metadata; skipping publish check."
+                  return 1
+                fi
+                printf '%s' "$metadata"
+              }
+
+              if [ -n "${MAVEN_REPO_URL:-}" ]; then
+                METADATA_XML="$(fetch_maven_metadata || true)"
+                if [ -n "$METADATA_XML" ]; then
+                  export METADATA_XML
+                  export DESIRED_VERSION="$VERSION"
+                  RESULT="$(python3 - <<'PY'
+              import os
+              import sys
+              import xml.etree.ElementTree as ET
+
+              xml_text = os.environ.get("METADATA_XML", "")
+              desired = os.environ.get("DESIRED_VERSION", "")
+              if not xml_text:
+                sys.exit(0)
+              try:
+                root = ET.fromstring(xml_text)
+              except ET.ParseError:
+                sys.exit(0)
+
+              versions = [el.text.strip() for el in root.findall("./versioning/versions/version") if el.text]
+              latest = ""
+              latest_el = root.find("./versioning/latest")
+              if latest_el is not None and latest_el.text:
+                latest = latest_el.text.strip()
+              if not latest and versions:
+                latest = versions[-1]
+
+              desired_present = desired in versions
+              print("latest=" + latest)
+              print("has=" + ("true" if desired_present else "false"))
+              PY
+                  )"
+                  PUBLISHED_LATEST="$(printf '%s' "$RESULT" | awk -F= '/^latest=/{print $2}')"
+                  PUBLISHED_HAS_DESIRED="$(printf '%s' "$RESULT" | awk -F= '/^has=/{print $2}')"
+                fi
+                if [ -n "$PUBLISHED_HAS_DESIRED" ] && [ "$PUBLISHED_HAS_DESIRED" != "true" ]; then
+                  if [ "${FALLBACK_TO_LATEST_PUBLISHED}" = "true" ] && [ -n "$PUBLISHED_LATEST" ]; then
+                    echo "WARN: Desired version ${VERSION} not published; falling back to ${PUBLISHED_LATEST}."
+                    VERSION="$PUBLISHED_LATEST"
+                  elif [ "${REQUIRE_PUBLISHED_VERSION}" = "true" ]; then
+                    echo "ERROR: Desired version ${VERSION} not published. Latest published is ${PUBLISHED_LATEST:-unknown}." >&2
+                    exit 1
+                  else
+                    echo "WARN: Desired version ${VERSION} not published; continuing anyway."
+                  fi
+                fi
               fi
 
               echo "Workbench controller: ${WORKBENCH_CONTROLLER_URL}"

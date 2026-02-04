@@ -18,6 +18,9 @@ data:
   # Optional. Preferred branch to resolve the container version from (falls back to prod/main/master).
   # Default: "prod" (source: config)
   REPO_BRANCH: "prod"
+  # Optional. Maven repository base URL used to verify published versions.
+  # Default: "https://maven.pkg.github.com/dotcomrow/drools-rule-app-tool-use-policy" (source: config)
+  MAVEN_REPO_URL: "https://maven.pkg.github.com/dotcomrow/drools-rule-app-tool-use-policy"
   # Optional. KIE server id to register with (required if KIE_SERVER_IDS is empty).
   # Default: "auto" (source: config)
   KIE_SERVER_ID: "auto"
@@ -48,6 +51,12 @@ data:
   # Optional. Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom.
   # Default: empty (source: config)
   VERSION_PREFIX: ""
+  # Optional. If true, fail registration when the desired version is not published in the Maven repo.
+  # Default: "false" (source: config)
+  REQUIRE_PUBLISHED_VERSION: "false"
+  # Optional. If true, use the latest published version when the desired version is unavailable.
+  # Default: "true" (source: config)
+  FALLBACK_TO_LATEST_PUBLISHED: "true"
   # Optional. If true, delete existing container specs when versions/status differ before re-registering.
   # Default: "true" (source: config)
   CLEANUP_OLD_VERSIONS: "true"

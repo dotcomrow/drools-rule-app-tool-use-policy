@@ -38,6 +38,7 @@ Version resolution (when VERSION/REPO_VERSION is empty or 'auto'):
 | `WORKBENCH_CONTROLLER_URL` | yes | `http://kie-workbench.drools.svc.cluster.local:8080/business-central/rest/controller` | config | Workbench controller REST base URL. |
 | `REPO_URL` | no | `https://github.com/dotcomrow/drools-rule-app-tool-use-policy.git` | config | Git URL used to resolve the container version when VERSION is empty/auto. |
 | `REPO_BRANCH` | no | `prod` | config | Preferred branch to resolve the container version from (falls back to prod/main/master). |
+| `MAVEN_REPO_URL` | no | `https://maven.pkg.github.com/dotcomrow/drools-rule-app-tool-use-policy` | config | Maven repository base URL used to verify published versions. |
 | `KIE_SERVER_ID` | no | `auto` | config | KIE server id to register with (required if KIE_SERVER_IDS is empty). |
 | `KIE_SERVER_IDS` | no | `` | job | Comma-separated list of KIE server ids to register with. |
 | `KIE_SERVER_ID_PREFIX` | no | `kie-server-` | config | Prefix used when selecting auto KIE server ids. |
@@ -48,6 +49,8 @@ Version resolution (when VERSION/REPO_VERSION is empty or 'auto'):
 | `ARTIFACT_ID` | yes | `tool-use-policy` | config | Maven artifactId for the KJAR. |
 | `VERSION` | no | `` | config | KJAR version to register in the container spec. If empty or 'auto', derived from the repo. |
 | `VERSION_PREFIX` | no | `` | config | Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom. |
+| `REQUIRE_PUBLISHED_VERSION` | no | `false` | config | If true, fail registration when the desired version is not published in the Maven repo. |
+| `FALLBACK_TO_LATEST_PUBLISHED` | no | `true` | config | If true, use the latest published version when the desired version is unavailable. |
 | `CLEANUP_OLD_VERSIONS` | no | `true` | config | If true, delete existing container specs when versions/status differ before re-registering. |
 | `FORCE_REDEPLOY` | no | `false` | config | If true, delete and re-register even when the container already matches the desired version. |
 | `CONTAINER_STATUS` | no | `STARTED` | config | Container status after registration (e.g., STARTED or STOPPED). |

@@ -101,6 +101,11 @@ REGISTER_SETTINGS = [
         "desc": "Preferred branch to resolve the container version from (falls back to prod/main/master).",
     },
     {
+        "key": "MAVEN_REPO_URL",
+        "required": False,
+        "desc": "Maven repository base URL used to verify published versions.",
+    },
+    {
         "key": "KIE_SERVER_ID",
         "required": False,
         "desc": "KIE server id to register with (required if KIE_SERVER_IDS is empty).",
@@ -149,6 +154,16 @@ REGISTER_SETTINGS = [
         "key": "VERSION_PREFIX",
         "required": False,
         "desc": "Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom.",
+    },
+    {
+        "key": "REQUIRE_PUBLISHED_VERSION",
+        "required": False,
+        "desc": "If true, fail registration when the desired version is not published in the Maven repo.",
+    },
+    {
+        "key": "FALLBACK_TO_LATEST_PUBLISHED",
+        "required": False,
+        "desc": "If true, use the latest published version when the desired version is unavailable.",
     },
     {
         "key": "CLEANUP_OLD_VERSIONS",
