@@ -34,8 +34,10 @@ spec:
           args:
             - |
               set -euo pipefail
+              umask 0002
               hold_on_error() {
                 code=$?
+                fix_niogit_permissions || true
                 if [ "$code" -ne 0 ] && [ "${HOLD_POD:-false}" = "true" ]; then
                   echo "Job failed with exit code ${code}; holding pod for debugging..."
                   while true; do sleep 3600; done
@@ -55,6 +57,35 @@ spec:
                     printf '%s' "$body" | head -c 1000
                     echo
                   fi
+                fi
+              }
+              detect_niogit_root() {
+                if [ -n "${NIOGIT_ROOT:-}" ]; then
+                  printf '%s' "$NIOGIT_ROOT"
+                  return 0
+                fi
+                if find /niogit -maxdepth 2 -type d -name "*.git" ! -path "/niogit/.niogit/*" -print -quit 2>/dev/null | grep -q .; then
+                  printf '%s' "/niogit"
+                  return 0
+                fi
+                if [ -d "/niogit/.niogit" ] && find /niogit/.niogit -maxdepth 2 -type d -name "*.git" -print -quit 2>/dev/null | grep -q .; then
+                  printf '%s' "/niogit/.niogit"
+                  return 0
+                fi
+                printf '%s' "/niogit"
+                return 0
+              }
+              fix_niogit_permissions() {
+                if [ "$(id -u)" != "0" ]; then
+                  return 0
+                fi
+                if [ -n "${SYNC_REPO:-}" ] && [ -d "$SYNC_REPO" ]; then
+                  chown -R 1000:1000 "$SYNC_REPO" || true
+                  chmod -R g+rwX "$SYNC_REPO" || true
+                fi
+                if [ -n "${NIOGIT_ROOT:-}" ] && [ -n "${SPACE_NAME:-}" ] && [ -d "${NIOGIT_ROOT}/${SPACE_NAME}" ]; then
+                  chown -R 1000:1000 "${NIOGIT_ROOT}/${SPACE_NAME}" || true
+                  chmod -R g+rwX "${NIOGIT_ROOT}/${SPACE_NAME}" || true
                 fi
               }
               trap hold_on_error EXIT
@@ -413,7 +444,7 @@ spec:
               fi
               rm -f "$SPACE_RESPONSE" "$SPACE_HEADERS"
 
-              NIOGIT_ROOT="/niogit/.niogit"
+              NIOGIT_ROOT="$(detect_niogit_root)"
               NIOGIT_CANONICAL="false"
               SYNC_REPO=""
               update_repo_head() {
@@ -714,6 +745,7 @@ spec:
               git_sync_repo "$SYNC_REPO"
               update_repo_head
               ensure_pom_version
+              fix_niogit_permissions
 
               remaining=""
               for i in $(seq 1 20); do
