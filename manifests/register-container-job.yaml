@@ -6,6 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "20"
     argocd.argoproj.io/sync-options: Force=true,Replace=true
+    rules.dotcomrow/container-version: "0.0.0"
 spec:
   backoffLimit: 3
   template:
@@ -45,6 +46,8 @@ spec:
               ARTIFACT_ID="${ARTIFACT_ID:-}"
               VERSION="${VERSION:-}"
               VERSION_PREFIX="${VERSION_PREFIX:-}"
+              CLEANUP_OLD_VERSIONS="${CLEANUP_OLD_VERSIONS:-false}"
+              FORCE_REDEPLOY="${FORCE_REDEPLOY:-false}"
               CONTAINER_STATUS="${CONTAINER_STATUS:-STARTED}"
               if ! printf '%s' "$KIE_SERVER_MIN_COUNT" | grep -q '^[0-9][0-9]*$'; then
                 echo "ERROR: KIE_SERVER_MIN_COUNT must be a non-negative integer"
@@ -462,6 +465,7 @@ spec:
 
               for KIE_SERVER_ID in $TARGET_SERVER_IDS; do
                 echo "----- Registering container for KIE server ${KIE_SERVER_ID} -----"
+                DELETE_BEFORE_REGISTER="false"
 
               echo "Waiting for KIE server registration..."
               WAIT_START="$(date +%s)"
@@ -532,9 +536,18 @@ spec:
                     echo "Container already registered with status: ${CONTAINER_STATUS_FOUND}"
                   fi
                   if [ "$CONTAINER_STATUS_FOUND" = "$CONTAINER_STATUS" ] && [ "$CONTAINER_VERSION_FOUND" = "$VERSION" ]; then
-                    continue
+                    if [ "${FORCE_REDEPLOY}" = "true" ]; then
+                      echo "Container matches desired version/status, but FORCE_REDEPLOY=true; redeploying."
+                      DELETE_BEFORE_REGISTER="true"
+                    else
+                      continue
+                    fi
+                  else
+                    echo "Container version/status differs; updating registration."
+                    if [ "${CLEANUP_OLD_VERSIONS}" = "true" ] || [ "${FORCE_REDEPLOY}" = "true" ]; then
+                      DELETE_BEFORE_REGISTER="true"
+                    fi
                   fi
-                  echo "Container version/status differs; updating registration."
                 fi
               fi
 
@@ -687,6 +700,11 @@ spec:
                 esac
                 return 1
               }
+
+              if [ "${DELETE_BEFORE_REGISTER}" = "true" ]; then
+                echo "Deleting existing container spec before registration."
+                delete_container_spec || echo "Warning: delete container spec did not succeed" >&2
+              fi
 
               HTTP_CODE="$(register_container)"
               if [ "$HTTP_CODE" = "500" ]; then

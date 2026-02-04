@@ -17,6 +17,8 @@ data:
   ARTIFACT_ID: "tool-use-policy"
   VERSION: ""
   VERSION_PREFIX: ""
+  CLEANUP_OLD_VERSIONS: "true"
+  FORCE_REDEPLOY: "false"
   CONTAINER_STATUS: "STARTED"
   LOG_HTTP: "true"
   LOG_HTTP_ONLY_ERRORS: "false"

@@ -48,6 +48,12 @@ data:
   # Optional. Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom.
   # Default: empty (source: config)
   VERSION_PREFIX: ""
+  # Optional. If true, delete existing container specs when versions/status differ before re-registering.
+  # Default: "true" (source: config)
+  CLEANUP_OLD_VERSIONS: "true"
+  # Optional. If true, delete and re-register even when the container already matches the desired version.
+  # Default: "false" (source: config)
+  FORCE_REDEPLOY: "false"
   # Optional. Container status after registration (e.g., STARTED or STOPPED).
   # Default: "STARTED" (source: config)
   CONTAINER_STATUS: "STARTED"

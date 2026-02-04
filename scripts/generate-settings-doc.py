@@ -151,6 +151,16 @@ REGISTER_SETTINGS = [
         "desc": "Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom.",
     },
     {
+        "key": "CLEANUP_OLD_VERSIONS",
+        "required": False,
+        "desc": "If true, delete existing container specs when versions/status differ before re-registering.",
+    },
+    {
+        "key": "FORCE_REDEPLOY",
+        "required": False,
+        "desc": "If true, delete and re-register even when the container already matches the desired version.",
+    },
+    {
         "key": "CONTAINER_STATUS",
         "required": False,
         "desc": "Container status after registration (e.g., STARTED or STOPPED).",

@@ -48,6 +48,8 @@ Version resolution (when VERSION/REPO_VERSION is empty or 'auto'):
 | `ARTIFACT_ID` | yes | `tool-use-policy` | config | Maven artifactId for the KJAR. |
 | `VERSION` | no | `` | config | KJAR version to register in the container spec. If empty or 'auto', derived from the repo. |
 | `VERSION_PREFIX` | no | `` | config | Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom. |
+| `CLEANUP_OLD_VERSIONS` | no | `true` | config | If true, delete existing container specs when versions/status differ before re-registering. |
+| `FORCE_REDEPLOY` | no | `false` | config | If true, delete and re-register even when the container already matches the desired version. |
 | `CONTAINER_STATUS` | no | `STARTED` | config | Container status after registration (e.g., STARTED or STOPPED). |
 | `TOKEN_REFRESH_SKEW` | no | `30` | job | Seconds to subtract from token expiry before refreshing. |
 | `LOG_HTTP` | no | `true` | config | If true, log HTTP interactions with the Workbench controller. |

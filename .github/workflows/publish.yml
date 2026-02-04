@@ -97,3 +97,59 @@ jobs:
         run: mvn -B -ntp -Drevision=$REVISION deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stamp version in repo
+        if: github.ref_name == 'prod' && github.actor != 'github-actions[bot]'
+        env:
+          VERSION: ${{ env.REVISION }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ.get("VERSION")
+          if not version:
+            raise SystemExit("VERSION not set")
+
+          updates = {
+            Path("manifests/register-container-config.yaml"): r'^(\s*VERSION:\s*).*$',
+            Path("manifests/workbench-import-config.yaml"): r'^(\s*REPO_VERSION:\s*).*$',
+            Path("manifests/register-container-job.yaml"): r'^(\s*rules\.dotcomrow/container-version:\s*).*$',
+            Path("manifests/workbench-import-job.yaml"): r'^(\s*rules\.dotcomrow/repo-version:\s*).*$',
+          }
+          for path, pattern in updates.items():
+            text = path.read_text()
+            replacement = r'\g<1>"{0}"'.format(version)
+            new_text, count = re.subn(pattern, replacement, text, flags=re.MULTILINE)
+            if count == 0:
+              raise SystemExit(f"Pattern not found in {path}")
+            if new_text != text:
+              path.write_text(new_text)
+
+          pom = Path("pom.xml")
+          pom_text = pom.read_text()
+          pom_new, pom_count = re.subn(
+            r"(<revision>)([^<]*)(</revision>)",
+            r"\\g<1>{0}\\g<3>".format(version),
+            pom_text,
+            flags=re.MULTILINE,
+          )
+          if pom_count == 0:
+            raise SystemExit("revision not found in pom.xml")
+          if pom_new != pom_text:
+            pom.write_text(pom_new)
+          PY
+
+          python scripts/generate-settings-doc.py
+
+          if git diff --quiet; then
+            echo "Version already up to date; no commit needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pom.xml manifests/register-container-config.yaml manifests/workbench-import-config.yaml manifests/register-container-job.yaml manifests/workbench-import-job.yaml docs/settings.md manifests/register-container-config.full.yaml manifests/workbench-import-config.full.yaml
+          git commit -m "chore: stamp version ${VERSION} [skip ci]"
+          git push origin HEAD:prod
