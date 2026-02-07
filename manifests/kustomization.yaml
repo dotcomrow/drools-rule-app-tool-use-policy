@@ -7,3 +7,4 @@ resources:
   - kie-server-restart-postsync.yaml
   - workbench-import-config.yaml
   - workbench-import-job.yaml
+  - vault-yugabyte-tool-use-policy.yaml

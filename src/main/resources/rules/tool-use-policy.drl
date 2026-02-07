@@ -1,7 +1,19 @@
 package com.dotcomrow.rules.tooluse
 
+import com.dotcomrow.rules.tooluse.DbTestRequest;
+import com.dotcomrow.rules.tooluse.DbTestResult;
+import com.dotcomrow.rules.tooluse.ToolUsePolicyDb;
 import com.dotcomrow.rules.tooluse.ToolUseRequest;
 import com.dotcomrow.rules.tooluse.ToolUseDecision;
+
+rule "DB test (Vault static creds + Yugabyte)"
+  salience 200
+when
+  DbTestRequest($msg: message)
+  not DbTestResult()
+then
+  insert(ToolUsePolicyDb.runDbTest($msg));
+end
 
 rule "Deny destructive tool for guest or high risk"
   salience 100
