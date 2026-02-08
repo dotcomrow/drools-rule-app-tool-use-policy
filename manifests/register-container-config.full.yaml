@@ -52,11 +52,17 @@ data:
   # Default: empty (source: config)
   VERSION_PREFIX: ""
   # Optional. If true, fail registration when the desired version is not published in the Maven repo.
-  # Default: "false" (source: config)
-  REQUIRE_PUBLISHED_VERSION: "false"
-  # Optional. If true, use the latest published version when the desired version is unavailable.
   # Default: "true" (source: config)
-  FALLBACK_TO_LATEST_PUBLISHED: "true"
+  REQUIRE_PUBLISHED_VERSION: "true"
+  # Optional. If true, use the latest published version when the desired version is unavailable.
+  # Default: "false" (source: config)
+  FALLBACK_TO_LATEST_PUBLISHED: "false"
+  # Optional. Seconds to wait for the desired VERSION to appear in Maven metadata before failing/falling back.
+  # Default: "1200" (source: config)
+  PUBLISHED_VERSION_WAIT_SECONDS: "1200"
+  # Optional. Seconds between Maven metadata checks while waiting for the desired VERSION to publish.
+  # Default: "15" (source: config)
+  PUBLISHED_VERSION_POLL_SECONDS: "15"
   # Optional. If true, delete existing container specs when versions/status differ before re-registering.
   # Default: "true" (source: config)
   CLEANUP_OLD_VERSIONS: "true"

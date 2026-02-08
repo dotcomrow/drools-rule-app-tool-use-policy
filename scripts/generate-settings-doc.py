@@ -166,6 +166,16 @@ REGISTER_SETTINGS = [
         "desc": "If true, use the latest published version when the desired version is unavailable.",
     },
     {
+        "key": "PUBLISHED_VERSION_WAIT_SECONDS",
+        "required": False,
+        "desc": "Seconds to wait for the desired VERSION to appear in Maven metadata before failing/falling back.",
+    },
+    {
+        "key": "PUBLISHED_VERSION_POLL_SECONDS",
+        "required": False,
+        "desc": "Seconds between Maven metadata checks while waiting for the desired VERSION to publish.",
+    },
+    {
         "key": "CLEANUP_OLD_VERSIONS",
         "required": False,
         "desc": "If true, delete existing container specs when versions/status differ before re-registering.",

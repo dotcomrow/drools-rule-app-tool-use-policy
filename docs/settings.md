@@ -49,8 +49,10 @@ Version resolution (when VERSION/REPO_VERSION is empty or 'auto'):
 | `ARTIFACT_ID` | yes | `tool-use-policy` | config | Maven artifactId for the KJAR. |
 | `VERSION` | no | `` | config | KJAR version to register in the container spec. If empty or 'auto', derived from the repo. |
 | `VERSION_PREFIX` | no | `` | config | Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom. |
-| `REQUIRE_PUBLISHED_VERSION` | no | `false` | config | If true, fail registration when the desired version is not published in the Maven repo. |
-| `FALLBACK_TO_LATEST_PUBLISHED` | no | `true` | config | If true, use the latest published version when the desired version is unavailable. |
+| `REQUIRE_PUBLISHED_VERSION` | no | `true` | config | If true, fail registration when the desired version is not published in the Maven repo. |
+| `FALLBACK_TO_LATEST_PUBLISHED` | no | `false` | config | If true, use the latest published version when the desired version is unavailable. |
+| `PUBLISHED_VERSION_WAIT_SECONDS` | no | `1200` | config | Seconds to wait for the desired VERSION to appear in Maven metadata before failing/falling back. |
+| `PUBLISHED_VERSION_POLL_SECONDS` | no | `15` | config | Seconds between Maven metadata checks while waiting for the desired VERSION to publish. |
 | `CLEANUP_OLD_VERSIONS` | no | `true` | config | If true, delete existing container specs when versions/status differ before re-registering. |
 | `FORCE_REDEPLOY` | no | `false` | config | If true, delete and re-register even when the container already matches the desired version. |
 | `CONTAINER_STATUS` | no | `STARTED` | config | Container status after registration (e.g., STARTED or STOPPED). |
