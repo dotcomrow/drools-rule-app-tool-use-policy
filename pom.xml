@@ -69,6 +69,13 @@
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
       <version>42.7.2</version>
+      <exclusions>
+        <!-- Prevent Workbench/JBoss classloader conflicts with checker-qual already present in the platform. -->
+        <exclusion>
+          <groupId>org.checkerframework</groupId>
+          <artifactId>checker-qual</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <dependency>

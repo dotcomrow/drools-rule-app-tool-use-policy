@@ -4,9 +4,8 @@
   Keep this structure compatible with the Workbench version in the cluster (7.74.x).
 -->
 <deployment-descriptor
-  xmlns="http://www.jboss.org/jbpm"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://www.jboss.org/jbpm http://www.jboss.org/jbpm.xsd">
+  xsi:schemaLocation="http://www.jboss.org/jbpm deployment-descriptor.xsd">
   <persistence-unit>org.jbpm.persistence.jpa</persistence-unit>
   <audit-persistence-unit>org.jbpm.persistence.jpa</audit-persistence-unit>
   <audit-mode>JPA</audit-mode>
