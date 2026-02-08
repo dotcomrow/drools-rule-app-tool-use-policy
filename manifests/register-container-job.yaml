@@ -884,18 +884,11 @@ spec:
                     ;;
                 esac
 
-                verify_body="$(mktemp)"
-                if [ "$KIE_SERVER_REST_AUTH_MODE" = "bearer" ]; then
-                  ensure_token
-                  verify_code="$(curl -sS \
-                    -H "Authorization: Bearer ${TOKEN}" \
-                    -H "Accept: application/json" \
-                    -H "X-KIE-Server-Id: ${id}" \
-                    -H "KIE-Server-Id: ${id}" \
-                    -o "$verify_body" -w '%{http_code}' \
-                    "${base}/containers/${CONTAINER_ID}" || true)"
-                  if [ "$verify_code" = "401" ]; then
-                    fetch_token
+                verify_start="$(date +%s)"
+                while true; do
+                  verify_body="$(mktemp)"
+                  if [ "$KIE_SERVER_REST_AUTH_MODE" = "bearer" ]; then
+                    ensure_token
                     verify_code="$(curl -sS \
                       -H "Authorization: Bearer ${TOKEN}" \
                       -H "Accept: application/json" \
@@ -903,26 +896,54 @@ spec:
                       -H "KIE-Server-Id: ${id}" \
                       -o "$verify_body" -w '%{http_code}' \
                       "${base}/containers/${CONTAINER_ID}" || true)"
+                    if [ "$verify_code" = "401" ]; then
+                      fetch_token
+                      verify_code="$(curl -sS \
+                        -H "Authorization: Bearer ${TOKEN}" \
+                        -H "Accept: application/json" \
+                        -H "X-KIE-Server-Id: ${id}" \
+                        -H "KIE-Server-Id: ${id}" \
+                        -o "$verify_body" -w '%{http_code}' \
+                        "${base}/containers/${CONTAINER_ID}" || true)"
+                    fi
+                  else
+                    verify_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
+                      -H "Accept: application/json" \
+                      -H "X-KIE-Server-Id: ${id}" \
+                      -H "KIE-Server-Id: ${id}" \
+                      -o "$verify_body" -w '%{http_code}' \
+                      "${base}/containers/${CONTAINER_ID}" || true)"
                   fi
-                else
-                  verify_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
-                    -H "Accept: application/json" \
-                    -H "X-KIE-Server-Id: ${id}" \
-                    -H "KIE-Server-Id: ${id}" \
-                    -o "$verify_body" -w '%{http_code}' \
-                    "${base}/containers/${CONTAINER_ID}" || true)"
-                fi
-                verify_json="$(cat "$verify_body" 2>/dev/null || true)"
-                rm -f "$verify_body"
-                verify_type="$(printf '%s' "$verify_json" | jq -r '.type // empty' 2>/dev/null || true)"
-                verify_version="$(printf '%s' "$verify_json" | jq -r '.result["kie-container"]["release-id"].version // .result["kie-container"]["resolved-release-id"].version // empty' 2>/dev/null || true)"
-                if [ "$verify_code" != "200" ] || [ "$verify_type" != "SUCCESS" ] || [ "$verify_version" != "$VERSION" ]; then
+                  verify_json="$(cat "$verify_body" 2>/dev/null || true)"
+                  rm -f "$verify_body"
+                  verify_type="$(printf '%s' "$verify_json" | jq -r '.type // empty' 2>/dev/null || true)"
+                  verify_version="$(printf '%s' "$verify_json" | jq -r '.result["kie-container"]["release-id"].version // .result["kie-container"]["resolved-release-id"].version // empty' 2>/dev/null || true)"
+                  verify_msg="$(printf '%s' "$verify_json" | jq -r '.msg // empty' 2>/dev/null || true)"
+
+                  if [ "$verify_code" = "200" ] && [ "$verify_type" = "SUCCESS" ] && [ "$verify_version" = "$VERSION" ]; then
+                    echo "OK: KIE server ${id} deployed container ${CONTAINER_ID} version ${verify_version}"
+                    break
+                  fi
+
+                  now="$(date +%s)"
+                  if [ $((now - verify_start)) -ge "$KIE_SERVER_REST_WAIT_SECONDS" ]; then
+                    echo "ERROR: Verification failed on ${id} after ${KIE_SERVER_REST_WAIT_SECONDS}s (HTTP ${verify_code}, type=${verify_type:-?}, version=${verify_version:-?}, expected=${VERSION})"
+                    printf '%s\n' "$verify_json" | head -c 2000 || true
+                    echo
+                    return 1
+                  fi
+
+                  if [ "$verify_code" = "200" ] && [ "$verify_type" = "FAILURE" ] && printf '%s' "$verify_msg" | grep -qi "not instantiated"; then
+                    echo "Waiting for container ${CONTAINER_ID} to instantiate on ${id}..."
+                    sleep "$KIE_SERVER_REST_WAIT_INTERVAL"
+                    continue
+                  fi
+
                   echo "ERROR: Verification failed on ${id} (HTTP ${verify_code}, type=${verify_type:-?}, version=${verify_version:-?}, expected=${VERSION})"
                   printf '%s\n' "$verify_json" | head -c 2000 || true
                   echo
                   return 1
-                fi
-                echo "OK: KIE server ${id} deployed container ${CONTAINER_ID} version ${verify_version}"
+                done
               }
               if is_true "${DEPLOY_TO_KIE_SERVER_REST}"; then
                 case "${KIE_SERVER_REST_AUTH_MODE}" in
