@@ -16,7 +16,7 @@ data:
   CONTAINER_ID: "tool-use-policy"
   GROUP_ID: "com.dotcomrow.rules"
   ARTIFACT_ID: "tool-use-policy"
-  VERSION: "1.0.161"
+  VERSION: "1.0.163"
   VERSION_PREFIX: ""
   REQUIRE_PUBLISHED_VERSION: "true"
   FALLBACK_TO_LATEST_PUBLISHED: "false"
