@@ -201,11 +201,16 @@ spec:
                 # Be permissive in parsing: depending on Vault CLI/version, the value may be wrapped/quoted.
                 ALLOWED_ROLES_NORM="$(printf '%s' "${ALLOWED_ROLES_RAW}" | tr -d '\r' | tr -d '[]' | tr ',' '\n' | tr ' ' '\n' | \
                   sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/^\"//;s/\"$//' | sed "s/^'//;s/'$//" | awk 'NF')"
-                if ! printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -qx '\*'; then
-                  if ! printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -qx "${ROLE_STATIC_APP}"; then
-                    echo "ERROR: ${DB_MOUNT}/config/${DB_NAME_IN_VAULT} allowed_roles does not include ${ROLE_STATIC_APP} (allowed_roles=${ALLOWED_ROLES_RAW})."
-                    exit 1
-                  fi
+                # Treat "*" as a wildcard (allow any role). Use fixed-string matching to avoid regex quirks.
+                if printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -Fxq '*'; then
+                  true
+                elif printf '%s' "${ALLOWED_ROLES_RAW}" | grep -Fq '*'; then
+                  true
+                elif printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -Fxq "${ROLE_STATIC_APP}"; then
+                  true
+                else
+                  echo "ERROR: ${DB_MOUNT}/config/${DB_NAME_IN_VAULT} allowed_roles does not include ${ROLE_STATIC_APP} (allowed_roles=${ALLOWED_ROLES_RAW})."
+                  exit 1
                 fi
               fi
 

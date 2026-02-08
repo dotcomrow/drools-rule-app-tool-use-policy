@@ -1,13 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<deployment-descriptor xmlns="http://www.jboss.org/jbpm">
-  <work-item-handlers>
-  </work-item-handlers>
-  <event-listeners>
-  </event-listeners>
-  <task-event-listeners>
-  </task-event-listeners>
-  <globals>
-  </globals>
-  <environment-entries>
-  </environment-entries>
+<!--
+  Business Central (Workbench) uses this file for the Deployment Descriptor editor.
+  Keep this structure compatible with the Workbench version in the cluster (7.74.x).
+-->
+<deployment-descriptor
+  xmlns="http://www.jboss.org/jbpm"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.jboss.org/jbpm http://www.jboss.org/jbpm.xsd">
+  <persistence-unit>org.jbpm.persistence.jpa</persistence-unit>
+  <audit-persistence-unit>org.jbpm.persistence.jpa</audit-persistence-unit>
+  <audit-mode>JPA</audit-mode>
+  <persistence-mode>JPA</persistence-mode>
+  <runtime-strategy>SINGLETON</runtime-strategy>
+
+  <!-- Placeholders: keep empty, then add entries as needed. -->
+  <marshalling-strategies />
+  <event-listeners />
+  <task-event-listeners />
+  <globals />
+  <work-item-handlers />
+  <environment-entries />
+  <configurations />
+  <required-roles />
 </deployment-descriptor>
