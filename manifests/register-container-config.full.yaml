@@ -46,44 +46,44 @@ data:
   # Default: "tool-use-policy" (source: config)
   ARTIFACT_ID: "tool-use-policy"
   # Optional. KJAR version to register in the container spec. If empty or 'auto', derived from the repo.
-  # Default: "\"1.0.150" (source: config)
-  VERSION: "\"1.0.150"
+  # Default: empty (source: config)
+  VERSION: ""
   # Optional. Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom.
-  # Default: empty (source: job)
+  # Default: empty (source: config)
   VERSION_PREFIX: ""
   # Optional. If true, fail registration when the desired version is not published in the Maven repo.
-  # Default: "false" (source: job)
-  REQUIRE_PUBLISHED_VERSION: "false"
+  # Default: "true" (source: config)
+  REQUIRE_PUBLISHED_VERSION: "true"
   # Optional. If true, use the latest published version when the desired version is unavailable.
-  # Default: "true" (source: job)
-  FALLBACK_TO_LATEST_PUBLISHED: "true"
+  # Default: "false" (source: config)
+  FALLBACK_TO_LATEST_PUBLISHED: "false"
   # Optional. Seconds to wait for the desired VERSION to appear in Maven metadata before failing/falling back.
-  # Default: "1200" (source: job)
+  # Default: "1200" (source: config)
   PUBLISHED_VERSION_WAIT_SECONDS: "1200"
   # Optional. Seconds between Maven metadata checks while waiting for the desired VERSION to publish.
-  # Default: "15" (source: job)
+  # Default: "15" (source: config)
   PUBLISHED_VERSION_POLL_SECONDS: "15"
   # Optional. If true, delete existing container specs when versions/status differ before re-registering.
-  # Default: "false" (source: job)
-  CLEANUP_OLD_VERSIONS: "false"
+  # Default: "true" (source: config)
+  CLEANUP_OLD_VERSIONS: "true"
   # Optional. If true, delete and re-register even when the container already matches the desired version.
-  # Default: "false" (source: job)
+  # Default: "false" (source: config)
   FORCE_REDEPLOY: "false"
   # Optional. Container status after registration (e.g., STARTED or STOPPED).
-  # Default: "STARTED" (source: job)
+  # Default: "STARTED" (source: config)
   CONTAINER_STATUS: "STARTED"
   # Optional. Seconds to subtract from token expiry before refreshing.
   # Default: "30" (source: job)
   TOKEN_REFRESH_SKEW: "30"
   # Optional. If true, log HTTP interactions with the Workbench controller.
-  # Default: "true" (source: job)
+  # Default: "true" (source: config)
   LOG_HTTP: "true"
   # Optional. If true, only log non-2xx/3xx HTTP responses.
-  # Default: "true" (source: job)
-  LOG_HTTP_ONLY_ERRORS: "true"
+  # Default: "false" (source: config)
+  LOG_HTTP_ONLY_ERRORS: "false"
   # Optional. Max bytes of HTTP body to log.
-  # Default: "1200" (source: job)
-  LOG_HTTP_BODY_MAX: "1200"
+  # Default: "8000" (source: config)
+  LOG_HTTP_BODY_MAX: "8000"
   # Optional. Max seconds to wait for Workbench controller availability.
   # Default: "900" (source: job)
   CONTROLLER_WAIT_SECONDS: "900"

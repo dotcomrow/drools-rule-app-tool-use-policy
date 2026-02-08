@@ -81,7 +81,7 @@ jobs:
             sys.exit("Unable to resolve version from pom.xml.")
 
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
-            handle.write(f"REVISION={resolved}\\n")
+            handle.write(f"REVISION={resolved}\n")
           PY
 
       - name: Set up Java
@@ -112,6 +112,9 @@ jobs:
           version = os.environ.get("VERSION")
           if not version:
             raise SystemExit("VERSION not set")
+          version = version.strip()
+          if not re.fullmatch(r"[0-9]+\\.[0-9]+\\.[0-9]+", version):
+            raise SystemExit(f"Unexpected VERSION format: {version!r}")
 
           updates = {
             Path("manifests/register-container-config.yaml"): r'^(\s*VERSION:\s*).*$',
@@ -127,19 +130,6 @@ jobs:
               raise SystemExit(f"Pattern not found in {path}")
             if new_text != text:
               path.write_text(new_text)
-
-          pom = Path("pom.xml")
-          pom_text = pom.read_text()
-          pom_new, pom_count = re.subn(
-            r"(<revision>)([^<]*)(</revision>)",
-            r"\\g<1>{0}\\g<3>".format(version),
-            pom_text,
-            flags=re.MULTILINE,
-          )
-          if pom_count == 0:
-            raise SystemExit("revision not found in pom.xml")
-          if pom_new != pom_text:
-            pom.write_text(pom_new)
           PY
 
           python scripts/generate-settings-doc.py
@@ -150,6 +140,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add pom.xml manifests/register-container-config.yaml manifests/workbench-import-config.yaml manifests/register-container-job.yaml manifests/workbench-import-job.yaml docs/settings.md manifests/register-container-config.full.yaml manifests/workbench-import-config.full.yaml
+          git add manifests/register-container-config.yaml manifests/workbench-import-config.yaml manifests/register-container-job.yaml manifests/workbench-import-job.yaml docs/settings.md manifests/register-container-config.full.yaml manifests/workbench-import-config.full.yaml
           git commit -m "chore: stamp version ${VERSION} [skip ci]"
           git push origin HEAD:prod

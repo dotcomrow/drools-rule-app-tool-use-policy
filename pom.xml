@@ -10,8 +10,7 @@
   <name>Tool Use Policy Rules</name>
 
   <properties>
-    \g<1>1.0.150
-\g<3>
+    <revision>1.0.0-SNAPSHOT</revision>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>11</maven.compiler.release>
     <drools.version>7.74.1.Final</drools.version>

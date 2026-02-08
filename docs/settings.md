@@ -24,12 +24,12 @@ Version resolution (when VERSION/REPO_VERSION is empty or 'auto'):
 | `REPO_NAME` | yes | `tool-use-policy` | config | Workbench project/repo name (Niogit repo name). |
 | `REPO_URL` | yes | `https://github.com/dotcomrow/drools-rule-app-tool-use-policy.git` | config | Git URL used to clone the project into Workbench. |
 | `REPO_BRANCH` | no | `prod` | config | Preferred branch to set as HEAD (falls back to prod/main/master). |
-| `REPO_VERSION` | no | `"1.0.150` | config | Version to stamp into pom.xml after import. If empty or 'auto', derived from the repo. |
-| `VERSION_PREFIX` | no | `` | job | Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom. |
-| `SPACE_WAIT_SECONDS` | no | `300` | job | Max seconds to wait for async space creation to complete. |
-| `SPACE_OWNER` | no | `` | job | Owner for the space. Leave empty to auto-pick controller user or service account. |
-| `HOLD_POD` | no | `` | none | If true, keep the import pod running on failure for debugging. |
-| `DEBUG_REST` | no | `` | none | If true, log REST responses for Workbench API calls. |
+| `REPO_VERSION` | no | `` | config | Version to stamp into pom.xml after import. If empty or 'auto', derived from the repo. |
+| `VERSION_PREFIX` | no | `` | config | Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom. |
+| `SPACE_WAIT_SECONDS` | no | `300` | config | Max seconds to wait for async space creation to complete. |
+| `SPACE_OWNER` | no | `` | config | Owner for the space. Leave empty to auto-pick controller user or service account. |
+| `HOLD_POD` | no | `false` | config | If true, keep the import pod running on failure for debugging. |
+| `DEBUG_REST` | no | `true` | config | If true, log REST responses for Workbench API calls. |
 
 ## Register Container
 
@@ -47,19 +47,19 @@ Version resolution (when VERSION/REPO_VERSION is empty or 'auto'):
 | `CONTAINER_NAME` | no | `$CONTAINER_ID` | job | Container display name (defaults to CONTAINER_ID if empty). |
 | `GROUP_ID` | yes | `com.dotcomrow.rules` | config | Maven groupId for the KJAR. |
 | `ARTIFACT_ID` | yes | `tool-use-policy` | config | Maven artifactId for the KJAR. |
-| `VERSION` | no | `"1.0.150` | config | KJAR version to register in the container spec. If empty or 'auto', derived from the repo. |
-| `VERSION_PREFIX` | no | `` | job | Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom. |
-| `REQUIRE_PUBLISHED_VERSION` | no | `false` | job | If true, fail registration when the desired version is not published in the Maven repo. |
-| `FALLBACK_TO_LATEST_PUBLISHED` | no | `true` | job | If true, use the latest published version when the desired version is unavailable. |
-| `PUBLISHED_VERSION_WAIT_SECONDS` | no | `1200` | job | Seconds to wait for the desired VERSION to appear in Maven metadata before failing/falling back. |
-| `PUBLISHED_VERSION_POLL_SECONDS` | no | `15` | job | Seconds between Maven metadata checks while waiting for the desired VERSION to publish. |
-| `CLEANUP_OLD_VERSIONS` | no | `false` | job | If true, delete existing container specs when versions/status differ before re-registering. |
-| `FORCE_REDEPLOY` | no | `false` | job | If true, delete and re-register even when the container already matches the desired version. |
-| `CONTAINER_STATUS` | no | `STARTED` | job | Container status after registration (e.g., STARTED or STOPPED). |
+| `VERSION` | no | `` | config | KJAR version to register in the container spec. If empty or 'auto', derived from the repo. |
+| `VERSION_PREFIX` | no | `` | config | Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom. |
+| `REQUIRE_PUBLISHED_VERSION` | no | `true` | config | If true, fail registration when the desired version is not published in the Maven repo. |
+| `FALLBACK_TO_LATEST_PUBLISHED` | no | `false` | config | If true, use the latest published version when the desired version is unavailable. |
+| `PUBLISHED_VERSION_WAIT_SECONDS` | no | `1200` | config | Seconds to wait for the desired VERSION to appear in Maven metadata before failing/falling back. |
+| `PUBLISHED_VERSION_POLL_SECONDS` | no | `15` | config | Seconds between Maven metadata checks while waiting for the desired VERSION to publish. |
+| `CLEANUP_OLD_VERSIONS` | no | `true` | config | If true, delete existing container specs when versions/status differ before re-registering. |
+| `FORCE_REDEPLOY` | no | `false` | config | If true, delete and re-register even when the container already matches the desired version. |
+| `CONTAINER_STATUS` | no | `STARTED` | config | Container status after registration (e.g., STARTED or STOPPED). |
 | `TOKEN_REFRESH_SKEW` | no | `30` | job | Seconds to subtract from token expiry before refreshing. |
-| `LOG_HTTP` | no | `true` | job | If true, log HTTP interactions with the Workbench controller. |
-| `LOG_HTTP_ONLY_ERRORS` | no | `true` | job | If true, only log non-2xx/3xx HTTP responses. |
-| `LOG_HTTP_BODY_MAX` | no | `1200` | job | Max bytes of HTTP body to log. |
+| `LOG_HTTP` | no | `true` | config | If true, log HTTP interactions with the Workbench controller. |
+| `LOG_HTTP_ONLY_ERRORS` | no | `false` | config | If true, only log non-2xx/3xx HTTP responses. |
+| `LOG_HTTP_BODY_MAX` | no | `8000` | config | Max bytes of HTTP body to log. |
 | `CONTROLLER_WAIT_SECONDS` | no | `900` | job | Max seconds to wait for Workbench controller availability. |
 | `CONTROLLER_WAIT_INTERVAL` | no | `5` | job | Seconds between controller availability checks. |
 | `KIE_SERVER_WAIT_SECONDS` | no | `900` | job | Max seconds to wait for KIE server availability. |
