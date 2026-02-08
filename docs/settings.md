@@ -24,7 +24,7 @@ Version resolution (when VERSION/REPO_VERSION is empty or 'auto'):
 | `REPO_NAME` | yes | `tool-use-policy` | config | Workbench project/repo name (Niogit repo name). |
 | `REPO_URL` | yes | `https://github.com/dotcomrow/drools-rule-app-tool-use-policy.git` | config | Git URL used to clone the project into Workbench. |
 | `REPO_BRANCH` | no | `prod` | config | Preferred branch to set as HEAD (falls back to prod/main/master). |
-| `REPO_VERSION` | no | `1.0.179` | config | Version to stamp into pom.xml after import. If empty or 'auto', derived from the repo. |
+| `REPO_VERSION` | no | `1.0.181` | config | Version to stamp into pom.xml after import. If empty or 'auto', derived from the repo. |
 | `VERSION_PREFIX` | no | `` | config | Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom. |
 | `SPACE_WAIT_SECONDS` | no | `300` | config | Max seconds to wait for async space creation to complete. |
 | `SPACE_OWNER` | no | `` | config | Owner for the space. Leave empty to auto-pick controller user or service account. |
@@ -47,7 +47,7 @@ Version resolution (when VERSION/REPO_VERSION is empty or 'auto'):
 | `CONTAINER_NAME` | no | `$CONTAINER_ID` | job | Container display name (defaults to CONTAINER_ID if empty). |
 | `GROUP_ID` | yes | `com.dotcomrow.rules` | config | Maven groupId for the KJAR. |
 | `ARTIFACT_ID` | yes | `tool-use-policy` | config | Maven artifactId for the KJAR. |
-| `VERSION` | no | `1.0.179` | config | KJAR version to register in the container spec. If empty or 'auto', derived from the repo. |
+| `VERSION` | no | `1.0.181` | config | KJAR version to register in the container spec. If empty or 'auto', derived from the repo. |
 | `VERSION_PREFIX` | no | `` | config | Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom. |
 | `REQUIRE_PUBLISHED_VERSION` | no | `true` | config | If true, fail registration when the desired version is not published in the Maven repo. |
 | `FALLBACK_TO_LATEST_PUBLISHED` | no | `false` | config | If true, use the latest published version when the desired version is unavailable. |
