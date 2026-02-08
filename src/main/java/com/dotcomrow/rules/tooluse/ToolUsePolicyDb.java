@@ -40,8 +40,9 @@ public final class ToolUsePolicyDb {
             return DbTestResult.failure("DB config error: " + e.getMessage());
         }
 
-        // KIE Server / Workbench images include a PostgreSQL JDBC driver module. Attempt to load it explicitly so
-        // DriverManager can find it even if the container hasn't initialized DB connectivity yet.
+        // The PostgreSQL JDBC driver is expected to be available via the KJAR's Maven dependencies.
+        // Attempt to load it explicitly so DriverManager can find it even if the container hasn't initialized
+        // DB connectivity yet.
         try {
             Class.forName("org.postgresql.Driver");
         } catch (ClassNotFoundException ignored) {

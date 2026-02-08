@@ -62,9 +62,14 @@
     </dependency>
 
     <!--
-      DB access in this cluster uses the PostgreSQL driver already present in the Workbench/KIE Server images.
-      Keeping it out of the KJAR avoids Business Central class-verifier issues with multi-release JDBC jars.
+      YugabyteDB speaks the PostgreSQL wire protocol, so we use the PostgreSQL JDBC driver.
+      We include it in the KJAR's Maven deps so KIE Server can resolve it at container load time.
     -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>42.7.2</version>
+    </dependency>
 
     <dependency>
       <groupId>junit</groupId>

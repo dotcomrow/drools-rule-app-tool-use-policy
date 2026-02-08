@@ -24,7 +24,7 @@ if [ -z "$POD" ]; then
   exit 1
 fi
 
-kubectl -n "$NAMESPACE" exec "$POD" -c "$CONTAINER" -- env \
+kubectl -n "$NAMESPACE" exec -i "$POD" -c "$CONTAINER" -- env \
   GRAVITEE_URL="$GRAVITEE_URL" \
   CONTAINER_ID="$CONTAINER_ID" \
   SESSION="$SESSION" \
