@@ -170,11 +170,16 @@ spec:
                 echo "ERROR: Vault DB connection missing at ${DB_MOUNT}/config/${DB_NAME_IN_VAULT}. Configure it in the base drools install."
                 exit 1
               fi
-              ALLOWED_ROLES="$(vault read -field=allowed_roles "${DB_MOUNT}/config/${DB_NAME_IN_VAULT}" 2>/dev/null || true)"
-              if [ -n "${ALLOWED_ROLES:-}" ] && [ "${ALLOWED_ROLES}" != "*" ]; then
-                if ! printf '%s' "${ALLOWED_ROLES}" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -qx "${ROLE_STATIC_APP}"; then
-                  echo "ERROR: ${DB_MOUNT}/config/${DB_NAME_IN_VAULT} allowed_roles does not include ${ROLE_STATIC_APP} (allowed_roles=${ALLOWED_ROLES})."
-                  exit 1
+              ALLOWED_ROLES_RAW="$(vault read -field=allowed_roles "${DB_MOUNT}/config/${DB_NAME_IN_VAULT}" 2>/dev/null || true)"
+              if [ -n "${ALLOWED_ROLES_RAW:-}" ]; then
+                # Vault prints list fields like "[role1 role2]" and wildcards like "[*]".
+                ALLOWED_ROLES_NORM="$(printf '%s' "${ALLOWED_ROLES_RAW}" | tr -d '[]' | tr ',' '\n' | tr ' ' '\n' | \
+                  sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'NF')"
+                if ! printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -qx '\\*'; then
+                  if ! printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -qx "${ROLE_STATIC_APP}"; then
+                    echo "ERROR: ${DB_MOUNT}/config/${DB_NAME_IN_VAULT} allowed_roles does not include ${ROLE_STATIC_APP} (allowed_roles=${ALLOWED_ROLES_RAW})."
+                    exit 1
+                  fi
                 fi
               fi
 
