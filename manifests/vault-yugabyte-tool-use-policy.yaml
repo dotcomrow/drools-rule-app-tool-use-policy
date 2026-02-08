@@ -41,10 +41,6 @@ spec:
               value: "5"
             - name: DDL_RETRY_SLEEP
               value: "3"
-            - name: VAULT_ROTATE_RETRY_ATTEMPTS
-              value: "10"
-            - name: VAULT_ROTATE_RETRY_SLEEP
-              value: "5"
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -61,13 +57,10 @@ spec:
               VAULT_ADDR="http://vault.vault.svc.cluster.local:8200"
               AUTH_PATH="kubernetes"
 
-              DB_MOUNT="yugabyte-db"
-              # This is the *connection name* inside Vault's database secrets engine.
-              # It should already exist from the base drools install.
-              DB_NAME_IN_VAULT="yugabyte"
-
-              ROLE_STATIC_APP="tool-use-policy-yb-app"
-              POLICY_STATIC_APP="${ROLE_STATIC_APP}"
+              # Vault KV path for app DB credentials. This is intentionally static.
+              APP_DB_KV_PATH="secret/tool-use-policy/db"
+              # Vault policy name that will be added to the shared Kubernetes auth role.
+              POLICY_APP_DB="tool-use-policy-yb-app"
 
               # This role is shared by the Drools Workbench + KIE server service accounts.
               K8S_ROLE_PATH="auth/${AUTH_PATH}/role/drools"
@@ -77,8 +70,6 @@ spec:
 
               DDL_RETRY_ATTEMPTS="${DDL_RETRY_ATTEMPTS:-5}"
               DDL_RETRY_SLEEP="${DDL_RETRY_SLEEP:-3}"
-              VAULT_ROTATE_RETRY_ATTEMPTS="${VAULT_ROTATE_RETRY_ATTEMPTS:-10}"
-              VAULT_ROTATE_RETRY_SLEEP="${VAULT_ROTATE_RETRY_SLEEP:-5}"
 
               is_transient_yb_error() {
                 printf '%s' "$1" | grep -Eq "Restarting a DDL transaction not supported|MISMATCHED_SCHEMA|SQLSTATE 40001|catalog snapshot used for this transaction has been invalidated|could not serialize access"
@@ -108,63 +99,6 @@ spec:
                 done
               }
 
-              vault_write_with_retry() {
-                desc="$1"; shift
-                attempt=1
-                while [ "$attempt" -le "$VAULT_ROTATE_RETRY_ATTEMPTS" ]; do
-                  echo "Vault write: ${desc} (attempt ${attempt}/${VAULT_ROTATE_RETRY_ATTEMPTS})"
-                  set +e
-                  output="$(vault write "$@" 2>&1)"
-                  status=$?
-                  set -e
-                  if [ "$status" -eq 0 ]; then
-                    [ -n "$output" ] && printf "%s\n" "$output"
-                    return 0
-                  fi
-                  printf "%s\n" "$output" >&2
-                  if is_transient_yb_error "$output" && [ "$attempt" -lt "$VAULT_ROTATE_RETRY_ATTEMPTS" ]; then
-                    echo "Retrying vault write after transient Yugabyte error..."
-                    sleep "$VAULT_ROTATE_RETRY_SLEEP"
-                    attempt=$((attempt + 1))
-                    continue
-                  fi
-                  echo "ERROR: vault write failed: ${desc}"
-                  return "$status"
-                done
-              }
-
-              rotate_and_wait_static_creds() {
-                role_name="$1"
-                attempt=1
-                while [ "$attempt" -le "$VAULT_ROTATE_RETRY_ATTEMPTS" ]; do
-                  echo "Rotating Vault static role ${role_name} (attempt ${attempt}/${VAULT_ROTATE_RETRY_ATTEMPTS})"
-                  set +e
-                  output="$(vault write -f "${DB_MOUNT}/rotate-role/${role_name}" 2>&1)"
-                  status=$?
-                  set -e
-                  if [ "$status" -ne 0 ]; then
-                    printf "%s\n" "$output" >&2
-                    if ! is_transient_yb_error "$output" && ! printf '%s' "$output" | grep -q "retries will continue in the background"; then
-                      echo "ERROR: rotate-role ${role_name} failed"
-                      return "$status"
-                    fi
-                  fi
-
-                  user="$(vault read -field=username ${DB_MOUNT}/static-creds/${role_name} 2>/dev/null || true)"
-                  pass="$(vault read -field=password ${DB_MOUNT}/static-creds/${role_name} 2>/dev/null || true)"
-                  if [ -n "${user:-}" ] && [ -n "${pass:-}" ] && PGPASSWORD="$pass" psql -h "$PGHOST" -p "$PGPORT" -U "$user" -d "$APP_DB" -v ON_ERROR_STOP=1 -c "SELECT 1;" >/dev/null 2>&1; then
-                    echo "static-creds ${role_name} validated"
-                    return 0
-                  fi
-
-                  echo "Waiting for static-creds ${role_name} to become valid..."
-                  sleep "$VAULT_ROTATE_RETRY_SLEEP"
-                  attempt=$((attempt + 1))
-                done
-                echo "ERROR: static-creds ${role_name} not valid after ${VAULT_ROTATE_RETRY_ATTEMPTS} attempt(s)"
-                return 1
-              }
-
               normalize_csv_unique() {
                 # Inputs: comma separated values (may include blanks/spaces). Output: stable, de-duped CSV.
                 printf '%s' "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'NF' | sort -u | \
@@ -185,35 +119,28 @@ spec:
                   ttl="${K8S_ROLE_TTL}"
               }
 
+              kv_data_path() {
+                # Convert a KV v2 path like "secret/foo/bar" to the policy path "secret/data/foo/bar".
+                kv_path="$1"
+                mount="${kv_path%%/*}"
+                rest="${kv_path#*/}"
+                printf '%s/data/%s' "$mount" "$rest"
+              }
+
+              gen_password() {
+                # 32 bytes -> 64 hex chars. Use only characters safe for SQL single-quoting.
+                if command -v openssl >/dev/null 2>&1; then
+                  openssl rand -hex 32
+                else
+                  head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'
+                fi
+              }
+
               export PATH="/vault-bin:$PATH"
               export VAULT_ADDR
 
               until [ -s /vault-token/VAULT_TOKEN ]; do echo "waiting for /vault-token/VAULT_TOKEN..."; sleep 2; done
               export VAULT_TOKEN="$(cat /vault-token/VAULT_TOKEN)"
-
-              if ! vault read "${DB_MOUNT}/config/${DB_NAME_IN_VAULT}" >/dev/null 2>&1; then
-                echo "ERROR: Vault DB connection missing at ${DB_MOUNT}/config/${DB_NAME_IN_VAULT}. Configure it in the base drools install."
-                exit 1
-              fi
-              ALLOWED_ROLES_RAW="$(vault read -field=allowed_roles "${DB_MOUNT}/config/${DB_NAME_IN_VAULT}" 2>/dev/null || true)"
-              if [ -n "${ALLOWED_ROLES_RAW:-}" ]; then
-                # Vault prints list fields like "[role1 role2]" and wildcards like "[*]".
-                # If allowed_roles contains a literal "*", treat it as "allow any role".
-                case "${ALLOWED_ROLES_RAW}" in
-                  *\**)
-                    true
-                    ;;
-                  *)
-                  # Otherwise require an exact match on our role name (as a token in the list).
-                  ALLOWED_ROLES_NORM="$(printf '%s' "${ALLOWED_ROLES_RAW}" | tr -d '\r' | tr -d '[]' | tr ',' '\n' | tr ' ' '\n' | \
-                    sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/^\"//;s/\"$//' | sed "s/^'//;s/'$//" | awk 'NF')"
-                  if ! printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -Fxq "${ROLE_STATIC_APP}"; then
-                    echo "ERROR: ${DB_MOUNT}/config/${DB_NAME_IN_VAULT} allowed_roles does not include ${ROLE_STATIC_APP} (allowed_roles=${ALLOWED_ROLES_RAW})."
-                    exit 1
-                  fi
-                    ;;
-                esac
-              fi
 
               until pg_isready -h "$PGHOST" -p "$PGPORT" >/dev/null 2>&1; do
                 echo "waiting for DB $PGHOST:$PGPORT..."
@@ -268,30 +195,30 @@ spec:
                 psql -h "$PGHOST" -p "$PGPORT" -U "$VAULTADMIN_USER" -d "$APP_DB" -v ON_ERROR_STOP=1 \
                   -c "ALTER ROLE \"${APP_USER}\" SET search_path = ${APP_SCHEMA},public;"
 
-              vault_write_with_retry "static role ${ROLE_STATIC_APP}" "${DB_MOUNT}/static-roles/${ROLE_STATIC_APP}" \
-                db_name="${DB_NAME_IN_VAULT}" \
-                username="${APP_USER}" \
-                # Treat this app DB like a "configuration DB": keep passwords stable for long periods.
-                # If you later want frequent rotation, lower this and ensure the runtime refreshes the datasource creds.
-                rotation_period="8760h" \
-                rotation_statements="ALTER ROLE \"${APP_USER}\" WITH PASSWORD '{{password}}';"
-
-              # Avoid rotating on every ArgoCD sync. If static-creds already exist and work, keep them.
-              DB_USER="$(vault read -field=username ${DB_MOUNT}/static-creds/${ROLE_STATIC_APP} 2>/dev/null || true)"
-              DB_PASS="$(vault read -field=password ${DB_MOUNT}/static-creds/${ROLE_STATIC_APP} 2>/dev/null || true)"
-              if [ -n "${DB_USER:-}" ] && [ -n "${DB_PASS:-}" ] && PGPASSWORD="$DB_PASS" psql -h "$PGHOST" -p "$PGPORT" -U "$DB_USER" -d "$APP_DB" -v ON_ERROR_STOP=1 -c "SELECT 1;" >/dev/null 2>&1; then
-                echo "static-creds ${ROLE_STATIC_APP} already valid; not rotating"
-              else
-                rotate_and_wait_static_creds "${ROLE_STATIC_APP}"
-                DB_USER="$(vault read -field=username ${DB_MOUNT}/static-creds/${ROLE_STATIC_APP})"
-                DB_PASS="$(vault read -field=password ${DB_MOUNT}/static-creds/${ROLE_STATIC_APP})"
+              # Static password managed by Vault KV.
+              DB_USER="$(vault kv get -field=username "${APP_DB_KV_PATH}" 2>/dev/null || true)"
+              DB_PASS="$(vault kv get -field=password "${APP_DB_KV_PATH}" 2>/dev/null || true)"
+              if [ -n "${DB_USER:-}" ] && [ "${DB_USER}" != "${APP_USER}" ]; then
+                echo "ERROR: Vault KV ${APP_DB_KV_PATH} username is '${DB_USER}', expected '${APP_USER}'"
+                exit 1
+              fi
+              DB_USER="${APP_USER}"
+              if [ -z "${DB_PASS:-}" ]; then
+                DB_PASS="$(gen_password)"
+                vault kv put "${APP_DB_KV_PATH}" username="${DB_USER}" password="${DB_PASS}" >/dev/null
+                echo "Created Vault KV secret for app DB credentials at ${APP_DB_KV_PATH}"
               fi
 
-              vault policy write "${POLICY_STATIC_APP}" - <<EOF
-              path "${DB_MOUNT}/static-creds/${ROLE_STATIC_APP}" { capabilities = ["read"] }
+              run_psql_with_retry "sync password for role ${APP_USER}" \
+                psql -h "$PGHOST" -p "$PGPORT" -U "$VAULTADMIN_USER" -d "$APP_DB" -v ON_ERROR_STOP=1 \
+                  -c "ALTER ROLE \"${APP_USER}\" WITH PASSWORD '${DB_PASS}';"
+
+              APP_DB_KV_DATA_PATH="$(kv_data_path "${APP_DB_KV_PATH}")"
+              vault policy write "${POLICY_APP_DB}" - <<EOF
+              path "${APP_DB_KV_DATA_PATH}" { capabilities = ["read"] }
               EOF
 
-              ensure_vault_k8s_role_policy "${K8S_ROLE_PATH}" "${POLICY_STATIC_APP}"
+              ensure_vault_k8s_role_policy "${K8S_ROLE_PATH}" "${POLICY_APP_DB}"
 
               export PGPASSWORD="$DB_PASS"
 
@@ -303,7 +230,7 @@ spec:
                 psql -h "$PGHOST" -p "$PGPORT" -U "$DB_USER" -d "$APP_DB" -v ON_ERROR_STOP=1 \
                   -c "CREATE TABLE IF NOT EXISTS ${APP_SCHEMA}.tool_use_audit (id bigserial PRIMARY KEY, request_id text NOT NULL, decision text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());"
 
-              echo "Yugabyte app DB configured and Vault static role ready."
+              echo "Yugabyte app DB configured and Vault KV creds ready."
           volumeMounts:
             - name: root-token
               mountPath: /vault-token

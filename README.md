@@ -37,11 +37,11 @@ You can edit these from Workbench or in an external IDE.
 
 ## Yugabyte Database Example
 `manifests/vault-yugabyte-tool-use-policy.yaml` provisions an app-owned Yugabyte DB using the same
-pattern as the Drools system:
+GitOps job pattern as the Drools system:
 - Creates DB `rules_tool_use` (if missing)
 - Creates DB role `tool_use_app` (static username)
-- Configures Vault DB static role `yugabyte-db/static-roles/tool-use-policy-yb-app` (Vault-managed password, long rotation period)
-- Writes Vault policy `tool-use-policy-yb-app` for reading `yugabyte-db/static-creds/tool-use-policy-yb-app`
+- Creates/uses a Vault KV secret at `secret/tool-use-policy/db` containing `username` + `password` (static password stored in Vault)
+- Writes Vault policy `tool-use-policy-yb-app` granting read access to that KV secret
 - Ensures the Vault Kubernetes auth role `drools` includes that policy (merged with existing policies)
 - Creates schema/table: `tool_use.tool_use_audit`
 
