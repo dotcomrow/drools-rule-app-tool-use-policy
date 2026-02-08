@@ -191,6 +191,56 @@ REGISTER_SETTINGS = [
         "desc": "Container status after registration (e.g., STARTED or STOPPED).",
     },
     {
+        "key": "DEPLOY_TO_KIE_SERVER_REST",
+        "required": False,
+        "desc": "If true, deploy/update the container directly on the KIE server(s) via KIE Server REST (workaround when controller-based install is blocked).",
+    },
+    {
+        "key": "KIE_SERVER_REST_BASE_URL_TEMPLATE",
+        "required": False,
+        "desc": "Base URL template for KIE Server REST. Use '{id}' placeholder for the server id.",
+    },
+    {
+        "key": "KIE_SERVER_REST_SCHEME",
+        "required": False,
+        "desc": "Scheme used when composing KIE Server REST base URL (http or https).",
+    },
+    {
+        "key": "KIE_SERVER_REST_HEADLESS_SERVICE",
+        "required": False,
+        "desc": "Headless service name used when composing per-pod KIE Server REST URL.",
+    },
+    {
+        "key": "KIE_SERVER_REST_NAMESPACE",
+        "required": False,
+        "desc": "Namespace used when composing per-pod KIE Server REST URL.",
+    },
+    {
+        "key": "KIE_SERVER_REST_PORT",
+        "required": False,
+        "desc": "Port used when composing per-pod KIE Server REST URL.",
+    },
+    {
+        "key": "KIE_SERVER_REST_CONTEXT_PATH",
+        "required": False,
+        "desc": "Context path for KIE Server REST base (default: /kie-server/services/rest/server).",
+    },
+    {
+        "key": "KIE_SERVER_REST_CREDS_PATH",
+        "required": False,
+        "desc": "Vault KV path containing username/password used for KIE Server REST calls.",
+    },
+    {
+        "key": "KIE_SERVER_REST_WAIT_SECONDS",
+        "required": False,
+        "desc": "Max seconds to wait for the KIE server REST endpoint to become available.",
+    },
+    {
+        "key": "KIE_SERVER_REST_WAIT_INTERVAL",
+        "required": False,
+        "desc": "Seconds between KIE server REST availability checks.",
+    },
+    {
         "key": "TOKEN_REFRESH_SKEW",
         "required": False,
         "desc": "Seconds to subtract from token expiry before refreshing.",

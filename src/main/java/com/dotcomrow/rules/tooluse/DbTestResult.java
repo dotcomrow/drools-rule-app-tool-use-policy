@@ -1,79 +1,46 @@
 package com.dotcomrow.rules.tooluse;
 
-import javax.xml.bind.annotation.XmlAccessType;
-import javax.xml.bind.annotation.XmlAccessorType;
-import javax.xml.bind.annotation.XmlRootElement;
-import javax.xml.bind.annotation.XmlType;
-
-@XmlRootElement(name = "DbTestResult")
-@XmlAccessorType(XmlAccessType.FIELD)
-@XmlType(name = "DbTestResult")
+/**
+ * Result fact inserted by the DB test rule.
+ */
 public class DbTestResult {
-  private boolean ok;
-  private String dbUser;
-  private String dbName;
-  private String schema;
-  private String requestId;
-  private String error;
+    private boolean ok;
+    private String message;
 
-  public DbTestResult() {
-  }
+    public DbTestResult() {}
 
-  public DbTestResult(boolean ok, String dbUser, String dbName, String schema, String requestId, String error) {
-    this.ok = ok;
-    this.dbUser = dbUser;
-    this.dbName = dbName;
-    this.schema = schema;
-    this.requestId = requestId;
-    this.error = error;
-  }
+    public DbTestResult(boolean ok, String message) {
+        this.ok = ok;
+        this.message = message;
+    }
 
-  public boolean isOk() {
-    return ok;
-  }
+    public static DbTestResult success(String message) {
+        return new DbTestResult(true, message);
+    }
 
-  public void setOk(boolean ok) {
-    this.ok = ok;
-  }
+    public static DbTestResult failure(String message) {
+        return new DbTestResult(false, message);
+    }
 
-  public String getDbUser() {
-    return dbUser;
-  }
+    public boolean isOk() {
+        return ok;
+    }
 
-  public void setDbUser(String dbUser) {
-    this.dbUser = dbUser;
-  }
+    public void setOk(boolean ok) {
+        this.ok = ok;
+    }
 
-  public String getDbName() {
-    return dbName;
-  }
+    public String getMessage() {
+        return message;
+    }
 
-  public void setDbName(String dbName) {
-    this.dbName = dbName;
-  }
+    public void setMessage(String message) {
+        this.message = message;
+    }
 
-  public String getSchema() {
-    return schema;
-  }
-
-  public void setSchema(String schema) {
-    this.schema = schema;
-  }
-
-  public String getRequestId() {
-    return requestId;
-  }
-
-  public void setRequestId(String requestId) {
-    this.requestId = requestId;
-  }
-
-  public String getError() {
-    return error;
-  }
-
-  public void setError(String error) {
-    this.error = error;
-  }
+    @Override
+    public String toString() {
+        return "DbTestResult{" + "ok=" + ok + ", message='" + message + '\'' + '}';
+    }
 }
 

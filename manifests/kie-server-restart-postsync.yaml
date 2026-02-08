@@ -14,7 +14,7 @@ spec:
       annotations:
         linkerd.io/inject: disabled
     spec:
-      serviceAccountName: drools-workbench
+      serviceAccountName: kie-server-restart-tool-use-policy
       restartPolicy: Never
       containers:
         - name: restart

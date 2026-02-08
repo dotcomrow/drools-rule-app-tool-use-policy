@@ -56,6 +56,16 @@ Version resolution (when VERSION/REPO_VERSION is empty or 'auto'):
 | `CLEANUP_OLD_VERSIONS` | no | `true` | config | If true, delete existing container specs when versions/status differ before re-registering. |
 | `FORCE_REDEPLOY` | no | `false` | config | If true, delete and re-register even when the container already matches the desired version. |
 | `CONTAINER_STATUS` | no | `STARTED` | config | Container status after registration (e.g., STARTED or STOPPED). |
+| `DEPLOY_TO_KIE_SERVER_REST` | no | `true` | config | If true, deploy/update the container directly on the KIE server(s) via KIE Server REST (workaround when controller-based install is blocked). |
+| `KIE_SERVER_REST_BASE_URL_TEMPLATE` | no | `` | config | Base URL template for KIE Server REST. Use '{id}' placeholder for the server id. |
+| `KIE_SERVER_REST_SCHEME` | no | `http` | config | Scheme used when composing KIE Server REST base URL (http or https). |
+| `KIE_SERVER_REST_HEADLESS_SERVICE` | no | `kie-server-headless` | config | Headless service name used when composing per-pod KIE Server REST URL. |
+| `KIE_SERVER_REST_NAMESPACE` | no | `drools` | config | Namespace used when composing per-pod KIE Server REST URL. |
+| `KIE_SERVER_REST_PORT` | no | `8080` | config | Port used when composing per-pod KIE Server REST URL. |
+| `KIE_SERVER_REST_CONTEXT_PATH` | no | `/kie-server/services/rest/server` | config | Context path for KIE Server REST base (default: /kie-server/services/rest/server). |
+| `KIE_SERVER_REST_CREDS_PATH` | no | `secret/drools/admin` | config | Vault KV path containing username/password used for KIE Server REST calls. |
+| `KIE_SERVER_REST_WAIT_SECONDS` | no | `900` | config | Max seconds to wait for the KIE server REST endpoint to become available. |
+| `KIE_SERVER_REST_WAIT_INTERVAL` | no | `5` | config | Seconds between KIE server REST availability checks. |
 | `TOKEN_REFRESH_SKEW` | no | `30` | job | Seconds to subtract from token expiry before refreshing. |
 | `LOG_HTTP` | no | `true` | config | If true, log HTTP interactions with the Workbench controller. |
 | `LOG_HTTP_ONLY_ERRORS` | no | `false` | config | If true, only log non-2xx/3xx HTTP responses. |

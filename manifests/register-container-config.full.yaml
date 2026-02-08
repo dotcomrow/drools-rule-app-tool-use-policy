@@ -72,6 +72,36 @@ data:
   # Optional. Container status after registration (e.g., STARTED or STOPPED).
   # Default: "STARTED" (source: config)
   CONTAINER_STATUS: "STARTED"
+  # Optional. If true, deploy/update the container directly on the KIE server(s) via KIE Server REST (workaround when controller-based install is blocked).
+  # Default: "true" (source: config)
+  DEPLOY_TO_KIE_SERVER_REST: "true"
+  # Optional. Base URL template for KIE Server REST. Use '{id}' placeholder for the server id.
+  # Default: empty (source: config)
+  KIE_SERVER_REST_BASE_URL_TEMPLATE: ""
+  # Optional. Scheme used when composing KIE Server REST base URL (http or https).
+  # Default: "http" (source: config)
+  KIE_SERVER_REST_SCHEME: "http"
+  # Optional. Headless service name used when composing per-pod KIE Server REST URL.
+  # Default: "kie-server-headless" (source: config)
+  KIE_SERVER_REST_HEADLESS_SERVICE: "kie-server-headless"
+  # Optional. Namespace used when composing per-pod KIE Server REST URL.
+  # Default: "drools" (source: config)
+  KIE_SERVER_REST_NAMESPACE: "drools"
+  # Optional. Port used when composing per-pod KIE Server REST URL.
+  # Default: "8080" (source: config)
+  KIE_SERVER_REST_PORT: "8080"
+  # Optional. Context path for KIE Server REST base (default: /kie-server/services/rest/server).
+  # Default: "/kie-server/services/rest/server" (source: config)
+  KIE_SERVER_REST_CONTEXT_PATH: "/kie-server/services/rest/server"
+  # Optional. Vault KV path containing username/password used for KIE Server REST calls.
+  # Default: "secret/drools/admin" (source: config)
+  KIE_SERVER_REST_CREDS_PATH: "secret/drools/admin"
+  # Optional. Max seconds to wait for the KIE server REST endpoint to become available.
+  # Default: "900" (source: config)
+  KIE_SERVER_REST_WAIT_SECONDS: "900"
+  # Optional. Seconds between KIE server REST availability checks.
+  # Default: "5" (source: config)
+  KIE_SERVER_REST_WAIT_INTERVAL: "5"
   # Optional. Seconds to subtract from token expiry before refreshing.
   # Default: "30" (source: job)
   TOKEN_REFRESH_SKEW: "30"

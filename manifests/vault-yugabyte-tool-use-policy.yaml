@@ -198,8 +198,9 @@ spec:
               ALLOWED_ROLES_RAW="$(vault read -field=allowed_roles "${DB_MOUNT}/config/${DB_NAME_IN_VAULT}" 2>/dev/null || true)"
               if [ -n "${ALLOWED_ROLES_RAW:-}" ]; then
                 # Vault prints list fields like "[role1 role2]" and wildcards like "[*]".
-                ALLOWED_ROLES_NORM="$(printf '%s' "${ALLOWED_ROLES_RAW}" | tr -d '[]' | tr ',' '\n' | tr ' ' '\n' | \
-                  sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'NF')"
+                # Be permissive in parsing: depending on Vault CLI/version, the value may be wrapped/quoted.
+                ALLOWED_ROLES_NORM="$(printf '%s' "${ALLOWED_ROLES_RAW}" | tr -d '\r' | tr -d '[]' | tr ',' '\n' | tr ' ' '\n' | \
+                  sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/^\"//;s/\"$//' | sed \"s/^'//;s/'$//\" | awk 'NF')"
                 if ! printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -qx '\*'; then
                   if ! printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -qx "${ROLE_STATIC_APP}"; then
                     echo "ERROR: ${DB_MOUNT}/config/${DB_NAME_IN_VAULT} allowed_roles does not include ${ROLE_STATIC_APP} (allowed_roles=${ALLOWED_ROLES_RAW})."

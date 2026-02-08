@@ -1,29 +1,28 @@
 package com.dotcomrow.rules.tooluse;
 
-import javax.xml.bind.annotation.XmlAccessType;
-import javax.xml.bind.annotation.XmlAccessorType;
-import javax.xml.bind.annotation.XmlRootElement;
-import javax.xml.bind.annotation.XmlType;
-
-@XmlRootElement(name = "DbTestRequest")
-@XmlAccessorType(XmlAccessType.FIELD)
-@XmlType(name = "DbTestRequest")
+/**
+ * Fact used to trigger a simple DB connectivity test rule.
+ */
 public class DbTestRequest {
-  private String message;
+    private String message;
 
-  public DbTestRequest() {
-  }
+    public DbTestRequest() {}
 
-  public DbTestRequest(String message) {
-    this.message = message;
-  }
+    public DbTestRequest(String message) {
+        this.message = message;
+    }
 
-  public String getMessage() {
-    return message;
-  }
+    public String getMessage() {
+        return message;
+    }
 
-  public void setMessage(String message) {
-    this.message = message;
-  }
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+    @Override
+    public String toString() {
+        return "DbTestRequest{" + "message='" + message + '\'' + '}';
+    }
 }
 

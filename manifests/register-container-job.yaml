@@ -54,6 +54,22 @@ spec:
               CLEANUP_OLD_VERSIONS="${CLEANUP_OLD_VERSIONS:-false}"
               FORCE_REDEPLOY="${FORCE_REDEPLOY:-false}"
               CONTAINER_STATUS="${CONTAINER_STATUS:-STARTED}"
+              DEPLOY_TO_KIE_SERVER_REST="${DEPLOY_TO_KIE_SERVER_REST:-true}"
+              KIE_SERVER_REST_BASE_URL_TEMPLATE="${KIE_SERVER_REST_BASE_URL_TEMPLATE:-}"
+              KIE_SERVER_REST_SCHEME="${KIE_SERVER_REST_SCHEME:-http}"
+              KIE_SERVER_REST_HEADLESS_SERVICE="${KIE_SERVER_REST_HEADLESS_SERVICE:-kie-server-headless}"
+              KIE_SERVER_REST_NAMESPACE="${KIE_SERVER_REST_NAMESPACE:-drools}"
+              KIE_SERVER_REST_PORT="${KIE_SERVER_REST_PORT:-8080}"
+              KIE_SERVER_REST_CONTEXT_PATH="${KIE_SERVER_REST_CONTEXT_PATH:-/kie-server/services/rest/server}"
+              KIE_SERVER_REST_CREDS_PATH="${KIE_SERVER_REST_CREDS_PATH:-secret/drools/admin}"
+              KIE_SERVER_REST_WAIT_SECONDS="${KIE_SERVER_REST_WAIT_SECONDS:-900}"
+              KIE_SERVER_REST_WAIT_INTERVAL="${KIE_SERVER_REST_WAIT_INTERVAL:-5}"
+              is_true() {
+                case "${1:-}" in
+                  1|true|TRUE|yes|YES|y|Y) return 0 ;;
+                  *) return 1 ;;
+                esac
+              }
               if ! printf '%s' "$PUBLISHED_VERSION_WAIT_SECONDS" | grep -q '^[0-9][0-9]*$'; then
                 echo "ERROR: PUBLISHED_VERSION_WAIT_SECONDS must be a non-negative integer"
                 exit 1
@@ -64,6 +80,14 @@ spec:
               fi
               if ! printf '%s' "$KIE_SERVER_MIN_COUNT" | grep -q '^[0-9][0-9]*$'; then
                 echo "ERROR: KIE_SERVER_MIN_COUNT must be a non-negative integer"
+                exit 1
+              fi
+              if ! printf '%s' "$KIE_SERVER_REST_WAIT_SECONDS" | grep -q '^[0-9][0-9]*$'; then
+                echo "ERROR: KIE_SERVER_REST_WAIT_SECONDS must be a non-negative integer"
+                exit 1
+              fi
+              if ! printf '%s' "$KIE_SERVER_REST_WAIT_INTERVAL" | grep -q '^[1-9][0-9]*$'; then
+                echo "ERROR: KIE_SERVER_REST_WAIT_INTERVAL must be a positive integer"
                 exit 1
               fi
               if [ -z "$WORKBENCH_CONTROLLER_URL" ] || [ -z "$CONTAINER_ID" ] || [ -z "$GROUP_ID" ] || [ -z "$ARTIFACT_ID" ] || ( [ -z "$KIE_SERVER_ID" ] && [ -z "$KIE_SERVER_IDS" ] ); then
@@ -514,6 +538,17 @@ spec:
                 fi
                 printf '%s' "$ids" | tr ' ' '\n' | awk 'NF{count++} END {print count+0}'
               }
+              generate_statefulset_ids() {
+                prefix="$1"
+                count="$2"
+                i=0
+                out=""
+                while [ "$i" -lt "$count" ]; do
+                  out="${out}${prefix}${i} "
+                  i=$((i + 1))
+                done
+                printf '%s' "$out"
+              }
 
               echo "Waiting for Workbench controller..."
               WAIT_START="$(date +%s)"
@@ -525,6 +560,10 @@ spec:
                 fi
                 now="$(date +%s)"
                 if [ $((now - WAIT_START)) -ge "$CONTROLLER_WAIT_SECONDS" ]; then
+                  if is_true "${DEPLOY_TO_KIE_SERVER_REST}"; then
+                    echo "WARN: Controller not ready after ${CONTROLLER_WAIT_SECONDS}s (last HTTP ${SERVERS_CODE}); continuing because DEPLOY_TO_KIE_SERVER_REST=true"
+                    break
+                  fi
                   echo "ERROR: Controller not ready after ${CONTROLLER_WAIT_SECONDS}s (last HTTP ${SERVERS_CODE})"
                   exit 1
                 fi
@@ -534,7 +573,7 @@ spec:
 
               TARGET_SERVER_IDS=""
               if [ -n "$KIE_SERVER_IDS" ]; then
-                TARGET_SERVER_IDS="$KIE_SERVER_IDS"
+                TARGET_SERVER_IDS="$(printf '%s' "$KIE_SERVER_IDS" | tr ',' ' ')"
               elif [ "${KIE_SERVER_ID}" = "auto" ] || [ -z "$KIE_SERVER_ID" ]; then
                 if [ "$KIE_SERVER_MIN_COUNT" -gt 0 ]; then
                   echo "Waiting for at least ${KIE_SERVER_MIN_COUNT} KIE server(s) to register..."
@@ -552,6 +591,11 @@ spec:
                     fi
                     now="$(date +%s)"
                     if [ $((now - WAIT_START)) -ge "$KIE_SERVER_WAIT_SECONDS" ]; then
+                      if [ "${DEPLOY_TO_KIE_SERVER_REST}" = "true" ]; then
+                        echo "WARN: Only ${FOUND_COUNT} KIE server(s) registered after ${KIE_SERVER_WAIT_SECONDS}s; falling back to StatefulSet ids (${KIE_SERVER_ID_PREFIX}0..$((KIE_SERVER_MIN_COUNT - 1))) because DEPLOY_TO_KIE_SERVER_REST=true"
+                        TARGET_SERVER_IDS="$(generate_statefulset_ids "$KIE_SERVER_ID_PREFIX" "$KIE_SERVER_MIN_COUNT")"
+                        break
+                      fi
                       echo "ERROR: Only ${FOUND_COUNT} KIE server(s) registered after ${KIE_SERVER_WAIT_SECONDS}s (last HTTP ${SERVERS_CODE})"
                       exit 1
                     fi
@@ -561,6 +605,10 @@ spec:
                 else
                   fetch_servers
                   TARGET_SERVER_IDS="$(resolve_server_ids)"
+                  if [ -z "$TARGET_SERVER_IDS" ] && [ "${DEPLOY_TO_KIE_SERVER_REST}" = "true" ] && [ "$KIE_SERVER_MIN_COUNT" -gt 0 ]; then
+                    echo "WARN: Controller returned no server ids; using StatefulSet ids (${KIE_SERVER_ID_PREFIX}0..$((KIE_SERVER_MIN_COUNT - 1))) because DEPLOY_TO_KIE_SERVER_REST=true"
+                    TARGET_SERVER_IDS="$(generate_statefulset_ids "$KIE_SERVER_ID_PREFIX" "$KIE_SERVER_MIN_COUNT")"
+                  fi
                 fi
               else
                 TARGET_SERVER_IDS="$KIE_SERVER_ID"
@@ -571,11 +619,153 @@ spec:
               fi
               echo "Target KIE server ids: ${TARGET_SERVER_IDS}"
 
+              kie_server_base_url() {
+                id="$1"
+                if [ -n "${KIE_SERVER_REST_BASE_URL_TEMPLATE:-}" ]; then
+                  printf '%s' "$KIE_SERVER_REST_BASE_URL_TEMPLATE" | sed "s/{id}/${id}/g"
+                  return 0
+                fi
+                ctx="${KIE_SERVER_REST_CONTEXT_PATH:-/kie-server/services/rest/server}"
+                case "$ctx" in
+                  /*) ;;
+                  *) ctx="/${ctx}" ;;
+                esac
+                printf '%s' "${KIE_SERVER_REST_SCHEME}://${id}.${KIE_SERVER_REST_HEADLESS_SERVICE}.${KIE_SERVER_REST_NAMESPACE}.svc.cluster.local:${KIE_SERVER_REST_PORT}${ctx}"
+              }
+              fetch_kie_server_rest_creds() {
+                path="$1"
+                json="$(vault kv get -format=json "$path" 2>/dev/null || true)"
+                user="$(printf '%s' "$json" | jq -r '.data.data.username // .data.data.user // empty' 2>/dev/null || true)"
+                pass="$(printf '%s' "$json" | jq -r '.data.data.password // .data.data.pass // empty' 2>/dev/null || true)"
+                if [ -z "${user:-}" ] || [ -z "${pass:-}" ]; then
+                  echo "ERROR: Missing username/password at Vault path ${path}"
+                  exit 1
+                fi
+                KIE_SERVER_REST_USER="$user"
+                KIE_SERVER_REST_PASS="$pass"
+              }
+              wait_for_kie_server_rest() {
+                base="$1"
+                wait_start="$(date +%s)"
+                while true; do
+                  code="$(curl -sS -o /dev/null -w '%{http_code}' -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
+                    -H "Accept: application/json" \
+                    "$base" || true)"
+                  if [ "$code" = "200" ]; then
+                    return 0
+                  fi
+                  if [ "$code" = "401" ] || [ "$code" = "403" ]; then
+                    echo "ERROR: KIE server REST auth failed (HTTP ${code}) at ${base}"
+                    return 1
+                  fi
+                  now="$(date +%s)"
+                  if [ $((now - wait_start)) -ge "$KIE_SERVER_REST_WAIT_SECONDS" ]; then
+                    echo "ERROR: KIE server REST not ready after ${KIE_SERVER_REST_WAIT_SECONDS}s (last HTTP ${code}) at ${base}"
+                    return 1
+                  fi
+                  echo "KIE server REST not ready (HTTP ${code}) at ${base}; retrying in ${KIE_SERVER_REST_WAIT_INTERVAL}s..."
+                  sleep "$KIE_SERVER_REST_WAIT_INTERVAL"
+                done
+              }
+              deploy_container_via_kie_rest() {
+                id="$1"
+                base="$(kie_server_base_url "$id")"
+                echo "Deploying container to ${id} via KIE Server REST: ${base}"
+                wait_for_kie_server_rest "$base"
+
+                body="$(mktemp)"
+                code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" -H "Accept: application/json" \
+                  -o "$body" -w '%{http_code}' \
+                  "${base}/containers/${CONTAINER_ID}" || true)"
+                json="$(cat "$body" 2>/dev/null || true)"
+                rm -f "$body"
+                existing_type="$(printf '%s' "$json" | jq -r '.type // empty' 2>/dev/null || true)"
+                existing_version="$(printf '%s' "$json" | jq -r '.result["kie-container"]["release-id"].version // .result["kie-container"]["resolved-release-id"].version // empty' 2>/dev/null || true)"
+                has_container="false"
+                if [ "$code" = "200" ] && [ "$existing_type" = "SUCCESS" ]; then
+                  has_container="true"
+                fi
+                if [ "$has_container" = "true" ]; then
+                  echo "KIE server ${id} has container ${CONTAINER_ID} version ${existing_version:-unknown}"
+                  if [ "${FORCE_REDEPLOY}" != "true" ] && [ "$existing_version" = "$VERSION" ]; then
+                    echo "KIE server container already at desired version; skipping create."
+                  else
+                    echo "Deleting existing KIE server container before deploy..."
+                    del_body="$(mktemp)"
+                    del_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" -H "Accept: application/json" \
+                      -o "$del_body" -w '%{http_code}' -X DELETE \
+                      "${base}/containers/${CONTAINER_ID}" || true)"
+                    rm -f "$del_body"
+                    case "$del_code" in
+                      200|204|404) ;;
+                      *) echo "ERROR: Failed to delete container on ${id} (HTTP ${del_code})"; return 1 ;;
+                    esac
+                  fi
+                fi
+
+                payload="$(jq -n \
+                  --arg cid "$CONTAINER_ID" \
+                  --arg gid "$GROUP_ID" \
+                  --arg aid "$ARTIFACT_ID" \
+                  --arg ver "$VERSION" \
+                  '{ "container-id": $cid, "release-id": { "group-id": $gid, "artifact-id": $aid, "version": $ver } }')"
+
+                put_body="$(mktemp)"
+                put_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
+                  -H "Accept: application/json" \
+                  -H "Content-Type: application/json" \
+                  -H "X-KIE-ContentType: JSON" \
+                  -o "$put_body" -w '%{http_code}' -X PUT \
+                  "${base}/containers/${CONTAINER_ID}" \
+                  --data-binary "$payload" || true)"
+                put_json="$(cat "$put_body" 2>/dev/null || true)"
+                rm -f "$put_body"
+                put_type="$(printf '%s' "$put_json" | jq -r '.type // empty' 2>/dev/null || true)"
+                if [ "$put_code" -lt 200 ] || [ "$put_code" -ge 300 ] || [ "$put_type" != "SUCCESS" ]; then
+                  echo "ERROR: Failed to deploy container on ${id} (HTTP ${put_code}, type=${put_type:-?})"
+                  printf '%s\n' "$put_json" | head -c 2000 || true
+                  echo
+                  return 1
+                fi
+
+                case "$CONTAINER_STATUS" in
+                  STARTED|started|ACTIVATED|activated)
+                    curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" -H "Accept: application/json" \
+                      -X PUT "${base}/containers/${CONTAINER_ID}/status/activated" >/dev/null 2>&1 || true
+                    ;;
+                  STOPPED|stopped|DEACTIVATED|deactivated)
+                    curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" -H "Accept: application/json" \
+                      -X PUT "${base}/containers/${CONTAINER_ID}/status/deactivated" >/dev/null 2>&1 || true
+                    ;;
+                esac
+
+                verify_body="$(mktemp)"
+                verify_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" -H "Accept: application/json" \
+                  -o "$verify_body" -w '%{http_code}' \
+                  "${base}/containers/${CONTAINER_ID}" || true)"
+                verify_json="$(cat "$verify_body" 2>/dev/null || true)"
+                rm -f "$verify_body"
+                verify_type="$(printf '%s' "$verify_json" | jq -r '.type // empty' 2>/dev/null || true)"
+                verify_version="$(printf '%s' "$verify_json" | jq -r '.result["kie-container"]["release-id"].version // .result["kie-container"]["resolved-release-id"].version // empty' 2>/dev/null || true)"
+                if [ "$verify_code" != "200" ] || [ "$verify_type" != "SUCCESS" ] || [ "$verify_version" != "$VERSION" ]; then
+                  echo "ERROR: Verification failed on ${id} (HTTP ${verify_code}, type=${verify_type:-?}, version=${verify_version:-?}, expected=${VERSION})"
+                  printf '%s\n' "$verify_json" | head -c 2000 || true
+                  echo
+                  return 1
+                fi
+                echo "OK: KIE server ${id} deployed container ${CONTAINER_ID} version ${verify_version}"
+              }
+              if is_true "${DEPLOY_TO_KIE_SERVER_REST}"; then
+                fetch_kie_server_rest_creds "$KIE_SERVER_REST_CREDS_PATH"
+              fi
+
               for KIE_SERVER_ID in $TARGET_SERVER_IDS; do
                 echo "----- Registering container for KIE server ${KIE_SERVER_ID} -----"
                 DELETE_BEFORE_REGISTER="false"
+                DO_CONTROLLER_REGISTRATION="true"
 
-              echo "Waiting for KIE server registration..."
+              echo "Checking controller registration for KIE server ${KIE_SERVER_ID}..."
+              CONTROLLER_HAS_SERVER="false"
               WAIT_START="$(date +%s)"
               while true; do
                 fetch_servers
@@ -589,36 +779,31 @@ spec:
                   else
                     any(templates[]; (.serverId // .["server-id"] // .id // .["server_id"]) == $id)
                   end' >/dev/null 2>&1; then
-                  echo "KIE server ${KIE_SERVER_ID} registered"
+                  CONTROLLER_HAS_SERVER="true"
+                  echo "KIE server ${KIE_SERVER_ID} registered with controller"
                   break
                 fi
                 now="$(date +%s)"
                 if [ $((now - WAIT_START)) -ge "$KIE_SERVER_WAIT_SECONDS" ]; then
+                  if [ "${DEPLOY_TO_KIE_SERVER_REST}" = "true" ]; then
+                    echo "WARN: KIE server ${KIE_SERVER_ID} not registered with controller after ${KIE_SERVER_WAIT_SECONDS}s; continuing because DEPLOY_TO_KIE_SERVER_REST=true"
+                    break
+                  fi
                   echo "ERROR: KIE server ${KIE_SERVER_ID} not registered after ${KIE_SERVER_WAIT_SECONDS}s (last HTTP ${SERVERS_CODE})"
                   exit 1
                 fi
                 echo "KIE server not registered yet (HTTP ${SERVERS_CODE}); retrying in ${KIE_SERVER_WAIT_INTERVAL}s..."
                 sleep "$KIE_SERVER_WAIT_INTERVAL"
               done
+              if [ "$CONTROLLER_HAS_SERVER" != "true" ]; then
+                DO_CONTROLLER_REGISTRATION="false"
+              fi
 
               echo "Checking controller server list..."
               echo "Servers response HTTP ${SERVERS_CODE}"
               printf '%s' "$SERVERS_JSON" | head -c 600 || true
               echo
-              if [ "$SERVERS_CODE" = "200" ]; then
-                if ! printf '%s' "$SERVERS_JSON" | jq -e --arg id "$KIE_SERVER_ID" '
-                  def templates:
-                    if type=="object" then
-                      (.servers // .items // .result // .serverTemplate // .serverTemplates // .["server-template"] // [])
-                    else [] end;
-                  if type=="array" then
-                    any(.[]; (.serverId // .["server-id"] // .id // .["server_id"]) == $id)
-                  else
-                    any(templates[]; (.serverId // .["server-id"] // .id // .["server_id"]) == $id)
-                  end' >/dev/null 2>&1; then
-                  echo "ERROR: KIE server id ${KIE_SERVER_ID} not registered with controller"
-                  exit 1
-                fi
+              if [ "$SERVERS_CODE" = "200" ] && [ "$CONTROLLER_HAS_SERVER" = "true" ]; then
                 CONTAINER_STATUS_FOUND="$(printf '%s' "$SERVERS_JSON" | jq -r --arg id "$KIE_SERVER_ID" --arg cid "$CONTAINER_ID" '
                   def templates:
                     if type=="object" then
@@ -648,7 +833,8 @@ spec:
                       echo "Container matches desired version/status, but FORCE_REDEPLOY=true; redeploying."
                       DELETE_BEFORE_REGISTER="true"
                     else
-                      continue
+                      echo "Container spec already matches desired version/status in controller; skipping controller registration."
+                      DO_CONTROLLER_REGISTRATION="false"
                     fi
                   else
                     echo "Container version/status differs; updating registration."
@@ -657,8 +843,11 @@ spec:
                     fi
                   fi
                 fi
+              elif [ "$SERVERS_CODE" = "200" ]; then
+                echo "WARN: Skipping controller container-spec checks because KIE server ${KIE_SERVER_ID} is not registered with the controller"
               fi
 
+              if [ "$DO_CONTROLLER_REGISTRATION" = "true" ]; then
               CONTAINER_NAME="${CONTAINER_NAME:-$CONTAINER_ID}"
               SERVER_TEMPLATE_NAME="$(printf '%s' "$SERVERS_JSON" | jq -r --arg id "$KIE_SERVER_ID" '
                 def templates:
@@ -868,4 +1057,10 @@ spec:
                 echo "WARNING: Could not verify container spec (HTTP ${VERIFY_CODE})" >&2
               fi
               rm -f "$RESPONSE_FILE" "$RESPONSE_HEADERS"
+              else
+                echo "Skipping controller registration for ${KIE_SERVER_ID}"
+              fi
+              if is_true "${DEPLOY_TO_KIE_SERVER_REST}"; then
+                deploy_container_via_kie_rest "${KIE_SERVER_ID}"
+              fi
               done
