@@ -61,6 +61,7 @@ spec:
               KIE_SERVER_REST_NAMESPACE="${KIE_SERVER_REST_NAMESPACE:-drools}"
               KIE_SERVER_REST_PORT="${KIE_SERVER_REST_PORT:-8080}"
               KIE_SERVER_REST_CONTEXT_PATH="${KIE_SERVER_REST_CONTEXT_PATH:-/kie-server/services/rest/server}"
+              KIE_SERVER_REST_AUTH_MODE="${KIE_SERVER_REST_AUTH_MODE:-bearer}"
               KIE_SERVER_REST_CREDS_PATH="${KIE_SERVER_REST_CREDS_PATH:-secret/drools/admin}"
               KIE_SERVER_REST_WAIT_SECONDS="${KIE_SERVER_REST_WAIT_SECONDS:-900}"
               KIE_SERVER_REST_WAIT_INTERVAL="${KIE_SERVER_REST_WAIT_INTERVAL:-5}"
@@ -621,6 +622,21 @@ spec:
 
               kie_server_base_url() {
                 id="$1"
+                # Prefer controller-provided server-url when available (it may point at an auth proxy).
+                if [ "${SERVERS_CODE:-}" = "200" ] && [ -n "${SERVERS_JSON:-}" ]; then
+                  url="$(printf '%s' "$SERVERS_JSON" | jq -r --arg id "$id" '
+                    def templates:
+                      if type=="object" then
+                        (.servers // .items // .result // .serverTemplate // .serverTemplates // .["server-template"] // [])
+                      else [] end;
+                    [templates[] | select((.serverId // .["server-id"] // .id // .["server_id"]) == $id)
+                      | .["server-instances"][]?
+                      | .["server-url"]][0] // empty' 2>/dev/null || true)"
+                  if [ -n "${url:-}" ] && [ "$url" != "null" ]; then
+                    printf '%s' "$url"
+                    return 0
+                  fi
+                fi
                 if [ -n "${KIE_SERVER_REST_BASE_URL_TEMPLATE:-}" ]; then
                   printf '%s' "$KIE_SERVER_REST_BASE_URL_TEMPLATE" | sed "s/{id}/${id}/g"
                   return 0
@@ -645,12 +661,34 @@ spec:
                 KIE_SERVER_REST_PASS="$pass"
               }
               wait_for_kie_server_rest() {
-                base="$1"
+                id="$1"
+                base="$2"
                 wait_start="$(date +%s)"
                 while true; do
-                  code="$(curl -sS -o /dev/null -w '%{http_code}' -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
-                    -H "Accept: application/json" \
-                    "$base" || true)"
+                  if [ "$KIE_SERVER_REST_AUTH_MODE" = "bearer" ]; then
+                    ensure_token
+                    code="$(curl -sS -o /dev/null -w '%{http_code}' \
+                      -H "Authorization: Bearer ${TOKEN}" \
+                      -H "Accept: application/json" \
+                      -H "X-KIE-Server-Id: ${id}" \
+                      -H "KIE-Server-Id: ${id}" \
+                      "$base" || true)"
+                    if [ "$code" = "401" ]; then
+                      fetch_token
+                      code="$(curl -sS -o /dev/null -w '%{http_code}' \
+                        -H "Authorization: Bearer ${TOKEN}" \
+                        -H "Accept: application/json" \
+                        -H "X-KIE-Server-Id: ${id}" \
+                        -H "KIE-Server-Id: ${id}" \
+                        "$base" || true)"
+                    fi
+                  else
+                    code="$(curl -sS -o /dev/null -w '%{http_code}' -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
+                      -H "Accept: application/json" \
+                      -H "X-KIE-Server-Id: ${id}" \
+                      -H "KIE-Server-Id: ${id}" \
+                      "$base" || true)"
+                  fi
                   if [ "$code" = "200" ]; then
                     return 0
                   fi
@@ -671,12 +709,36 @@ spec:
                 id="$1"
                 base="$(kie_server_base_url "$id")"
                 echo "Deploying container to ${id} via KIE Server REST: ${base}"
-                wait_for_kie_server_rest "$base"
+                wait_for_kie_server_rest "$id" "$base"
 
                 body="$(mktemp)"
-                code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" -H "Accept: application/json" \
-                  -o "$body" -w '%{http_code}' \
-                  "${base}/containers/${CONTAINER_ID}" || true)"
+                if [ "$KIE_SERVER_REST_AUTH_MODE" = "bearer" ]; then
+                  ensure_token
+                  code="$(curl -sS \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Accept: application/json" \
+                    -H "X-KIE-Server-Id: ${id}" \
+                    -H "KIE-Server-Id: ${id}" \
+                    -o "$body" -w '%{http_code}' \
+                    "${base}/containers/${CONTAINER_ID}" || true)"
+                  if [ "$code" = "401" ]; then
+                    fetch_token
+                    code="$(curl -sS \
+                      -H "Authorization: Bearer ${TOKEN}" \
+                      -H "Accept: application/json" \
+                      -H "X-KIE-Server-Id: ${id}" \
+                      -H "KIE-Server-Id: ${id}" \
+                      -o "$body" -w '%{http_code}' \
+                      "${base}/containers/${CONTAINER_ID}" || true)"
+                  fi
+                else
+                  code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
+                    -H "Accept: application/json" \
+                    -H "X-KIE-Server-Id: ${id}" \
+                    -H "KIE-Server-Id: ${id}" \
+                    -o "$body" -w '%{http_code}' \
+                    "${base}/containers/${CONTAINER_ID}" || true)"
+                fi
                 json="$(cat "$body" 2>/dev/null || true)"
                 rm -f "$body"
                 existing_type="$(printf '%s' "$json" | jq -r '.type // empty' 2>/dev/null || true)"
@@ -692,9 +754,33 @@ spec:
                   else
                     echo "Deleting existing KIE server container before deploy..."
                     del_body="$(mktemp)"
-                    del_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" -H "Accept: application/json" \
-                      -o "$del_body" -w '%{http_code}' -X DELETE \
-                      "${base}/containers/${CONTAINER_ID}" || true)"
+                    if [ "$KIE_SERVER_REST_AUTH_MODE" = "bearer" ]; then
+                      ensure_token
+                      del_code="$(curl -sS \
+                        -H "Authorization: Bearer ${TOKEN}" \
+                        -H "Accept: application/json" \
+                        -H "X-KIE-Server-Id: ${id}" \
+                        -H "KIE-Server-Id: ${id}" \
+                        -o "$del_body" -w '%{http_code}' -X DELETE \
+                        "${base}/containers/${CONTAINER_ID}" || true)"
+                      if [ "$del_code" = "401" ]; then
+                        fetch_token
+                        del_code="$(curl -sS \
+                          -H "Authorization: Bearer ${TOKEN}" \
+                          -H "Accept: application/json" \
+                          -H "X-KIE-Server-Id: ${id}" \
+                          -H "KIE-Server-Id: ${id}" \
+                          -o "$del_body" -w '%{http_code}' -X DELETE \
+                          "${base}/containers/${CONTAINER_ID}" || true)"
+                      fi
+                    else
+                      del_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
+                        -H "Accept: application/json" \
+                        -H "X-KIE-Server-Id: ${id}" \
+                        -H "KIE-Server-Id: ${id}" \
+                        -o "$del_body" -w '%{http_code}' -X DELETE \
+                        "${base}/containers/${CONTAINER_ID}" || true)"
+                    fi
                     rm -f "$del_body"
                     case "$del_code" in
                       200|204|404) ;;
@@ -711,13 +797,42 @@ spec:
                   '{ "container-id": $cid, "release-id": { "group-id": $gid, "artifact-id": $aid, "version": $ver } }')"
 
                 put_body="$(mktemp)"
-                put_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
-                  -H "Accept: application/json" \
-                  -H "Content-Type: application/json" \
-                  -H "X-KIE-ContentType: JSON" \
-                  -o "$put_body" -w '%{http_code}' -X PUT \
-                  "${base}/containers/${CONTAINER_ID}" \
-                  --data-binary "$payload" || true)"
+                if [ "$KIE_SERVER_REST_AUTH_MODE" = "bearer" ]; then
+                  ensure_token
+                  put_code="$(curl -sS \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Accept: application/json" \
+                    -H "Content-Type: application/json" \
+                    -H "X-KIE-ContentType: JSON" \
+                    -H "X-KIE-Server-Id: ${id}" \
+                    -H "KIE-Server-Id: ${id}" \
+                    -o "$put_body" -w '%{http_code}' -X PUT \
+                    "${base}/containers/${CONTAINER_ID}" \
+                    --data-binary "$payload" || true)"
+                  if [ "$put_code" = "401" ]; then
+                    fetch_token
+                    put_code="$(curl -sS \
+                      -H "Authorization: Bearer ${TOKEN}" \
+                      -H "Accept: application/json" \
+                      -H "Content-Type: application/json" \
+                      -H "X-KIE-ContentType: JSON" \
+                      -H "X-KIE-Server-Id: ${id}" \
+                      -H "KIE-Server-Id: ${id}" \
+                      -o "$put_body" -w '%{http_code}' -X PUT \
+                      "${base}/containers/${CONTAINER_ID}" \
+                      --data-binary "$payload" || true)"
+                  fi
+                else
+                  put_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
+                    -H "Accept: application/json" \
+                    -H "Content-Type: application/json" \
+                    -H "X-KIE-ContentType: JSON" \
+                    -H "X-KIE-Server-Id: ${id}" \
+                    -H "KIE-Server-Id: ${id}" \
+                    -o "$put_body" -w '%{http_code}' -X PUT \
+                    "${base}/containers/${CONTAINER_ID}" \
+                    --data-binary "$payload" || true)"
+                fi
                 put_json="$(cat "$put_body" 2>/dev/null || true)"
                 rm -f "$put_body"
                 put_type="$(printf '%s' "$put_json" | jq -r '.type // empty' 2>/dev/null || true)"
@@ -730,19 +845,69 @@ spec:
 
                 case "$CONTAINER_STATUS" in
                   STARTED|started|ACTIVATED|activated)
-                    curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" -H "Accept: application/json" \
-                      -X PUT "${base}/containers/${CONTAINER_ID}/status/activated" >/dev/null 2>&1 || true
+                    if [ "$KIE_SERVER_REST_AUTH_MODE" = "bearer" ]; then
+                      ensure_token
+                      curl -sS \
+                        -H "Authorization: Bearer ${TOKEN}" \
+                        -H "Accept: application/json" \
+                        -H "X-KIE-Server-Id: ${id}" \
+                        -H "KIE-Server-Id: ${id}" \
+                        -X PUT "${base}/containers/${CONTAINER_ID}/status/activated" >/dev/null 2>&1 || true
+                    else
+                      curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
+                        -H "Accept: application/json" \
+                        -H "X-KIE-Server-Id: ${id}" \
+                        -H "KIE-Server-Id: ${id}" \
+                        -X PUT "${base}/containers/${CONTAINER_ID}/status/activated" >/dev/null 2>&1 || true
+                    fi
                     ;;
                   STOPPED|stopped|DEACTIVATED|deactivated)
-                    curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" -H "Accept: application/json" \
-                      -X PUT "${base}/containers/${CONTAINER_ID}/status/deactivated" >/dev/null 2>&1 || true
+                    if [ "$KIE_SERVER_REST_AUTH_MODE" = "bearer" ]; then
+                      ensure_token
+                      curl -sS \
+                        -H "Authorization: Bearer ${TOKEN}" \
+                        -H "Accept: application/json" \
+                        -H "X-KIE-Server-Id: ${id}" \
+                        -H "KIE-Server-Id: ${id}" \
+                        -X PUT "${base}/containers/${CONTAINER_ID}/status/deactivated" >/dev/null 2>&1 || true
+                    else
+                      curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
+                        -H "Accept: application/json" \
+                        -H "X-KIE-Server-Id: ${id}" \
+                        -H "KIE-Server-Id: ${id}" \
+                        -X PUT "${base}/containers/${CONTAINER_ID}/status/deactivated" >/dev/null 2>&1 || true
+                    fi
                     ;;
                 esac
 
                 verify_body="$(mktemp)"
-                verify_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" -H "Accept: application/json" \
-                  -o "$verify_body" -w '%{http_code}' \
-                  "${base}/containers/${CONTAINER_ID}" || true)"
+                if [ "$KIE_SERVER_REST_AUTH_MODE" = "bearer" ]; then
+                  ensure_token
+                  verify_code="$(curl -sS \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Accept: application/json" \
+                    -H "X-KIE-Server-Id: ${id}" \
+                    -H "KIE-Server-Id: ${id}" \
+                    -o "$verify_body" -w '%{http_code}' \
+                    "${base}/containers/${CONTAINER_ID}" || true)"
+                  if [ "$verify_code" = "401" ]; then
+                    fetch_token
+                    verify_code="$(curl -sS \
+                      -H "Authorization: Bearer ${TOKEN}" \
+                      -H "Accept: application/json" \
+                      -H "X-KIE-Server-Id: ${id}" \
+                      -H "KIE-Server-Id: ${id}" \
+                      -o "$verify_body" -w '%{http_code}' \
+                      "${base}/containers/${CONTAINER_ID}" || true)"
+                  fi
+                else
+                  verify_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
+                    -H "Accept: application/json" \
+                    -H "X-KIE-Server-Id: ${id}" \
+                    -H "KIE-Server-Id: ${id}" \
+                    -o "$verify_body" -w '%{http_code}' \
+                    "${base}/containers/${CONTAINER_ID}" || true)"
+                fi
                 verify_json="$(cat "$verify_body" 2>/dev/null || true)"
                 rm -f "$verify_body"
                 verify_type="$(printf '%s' "$verify_json" | jq -r '.type // empty' 2>/dev/null || true)"
@@ -756,7 +921,14 @@ spec:
                 echo "OK: KIE server ${id} deployed container ${CONTAINER_ID} version ${verify_version}"
               }
               if is_true "${DEPLOY_TO_KIE_SERVER_REST}"; then
-                fetch_kie_server_rest_creds "$KIE_SERVER_REST_CREDS_PATH"
+                case "${KIE_SERVER_REST_AUTH_MODE}" in
+                  bearer) ;;
+                  basic) fetch_kie_server_rest_creds "$KIE_SERVER_REST_CREDS_PATH" ;;
+                  *)
+                    echo "ERROR: KIE_SERVER_REST_AUTH_MODE must be 'bearer' or 'basic' (got: ${KIE_SERVER_REST_AUTH_MODE})"
+                    exit 1
+                    ;;
+                esac
               fi
 
               for KIE_SERVER_ID in $TARGET_SERVER_IDS; do

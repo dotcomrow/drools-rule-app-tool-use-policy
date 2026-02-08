@@ -226,6 +226,11 @@ REGISTER_SETTINGS = [
         "desc": "Context path for KIE Server REST base (default: /kie-server/services/rest/server).",
     },
     {
+        "key": "KIE_SERVER_REST_AUTH_MODE",
+        "required": False,
+        "desc": "Auth mode for KIE Server REST calls: 'bearer' (Keycloak token) or 'basic' (Vault KV username/password).",
+    },
+    {
         "key": "KIE_SERVER_REST_CREDS_PATH",
         "required": False,
         "desc": "Vault KV path containing username/password used for KIE Server REST calls.",

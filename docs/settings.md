@@ -63,6 +63,7 @@ Version resolution (when VERSION/REPO_VERSION is empty or 'auto'):
 | `KIE_SERVER_REST_NAMESPACE` | no | `drools` | config | Namespace used when composing per-pod KIE Server REST URL. |
 | `KIE_SERVER_REST_PORT` | no | `8080` | config | Port used when composing per-pod KIE Server REST URL. |
 | `KIE_SERVER_REST_CONTEXT_PATH` | no | `/kie-server/services/rest/server` | config | Context path for KIE Server REST base (default: /kie-server/services/rest/server). |
+| `KIE_SERVER_REST_AUTH_MODE` | no | `bearer` | config | Auth mode for KIE Server REST calls: 'bearer' (Keycloak token) or 'basic' (Vault KV username/password). |
 | `KIE_SERVER_REST_CREDS_PATH` | no | `secret/drools/admin` | config | Vault KV path containing username/password used for KIE Server REST calls. |
 | `KIE_SERVER_REST_WAIT_SECONDS` | no | `900` | config | Max seconds to wait for the KIE server REST endpoint to become available. |
 | `KIE_SERVER_REST_WAIT_INTERVAL` | no | `5` | config | Seconds between KIE server REST availability checks. |

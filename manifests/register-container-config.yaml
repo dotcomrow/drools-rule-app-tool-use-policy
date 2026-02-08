@@ -34,6 +34,8 @@ data:
   KIE_SERVER_REST_NAMESPACE: "drools"
   KIE_SERVER_REST_PORT: "8080"
   KIE_SERVER_REST_CONTEXT_PATH: "/kie-server/services/rest/server"
+  # "bearer" (use Keycloak token) or "basic" (use Vault KV username/password from KIE_SERVER_REST_CREDS_PATH).
+  KIE_SERVER_REST_AUTH_MODE: "bearer"
   # Vault KV path with username/password for KIE server REST calls.
   KIE_SERVER_REST_CREDS_PATH: "secret/drools/admin"
   KIE_SERVER_REST_WAIT_SECONDS: "900"
