@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kie-workbench-restart-tool-use-policy
+  namespace: drools
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "28"
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      annotations:
+        linkerd.io/inject: disabled
+    spec:
+      serviceAccountName: kie-workbench-restart-tool-use-policy
+      restartPolicy: Never
+      containers:
+        - name: restart
+          image: alpine:3.18
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              apk add --no-cache curl ca-certificates >/dev/null
+              KUBECTL_VERSION="${KUBECTL_VERSION:-v1.28.9}"
+              curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+              chmod +x /usr/local/bin/kubectl
+              echo "Restarting Workbench Deployment to refresh niogit + Maven config..."
+              kubectl -n drools rollout restart deployment/kie-workbench
+              kubectl -n drools rollout status deployment/kie-workbench --timeout=15m

@@ -183,10 +183,12 @@ public final class ToolUsePolicyDb {
                     vaultError = e.getMessage();
                 }
 
-                throw new IllegalStateException(
-                        "Missing DB credentials. Set TOOL_USE_POLICY_DB_USERNAME + TOOL_USE_POLICY_DB_PASSWORD, "
-                                + "or set TOOL_USE_POLICY_DB_CREDS_JSON/TOOL_USE_POLICY_DB_CREDS_FILE to a Vault static-creds JSON file."
-                                + (vaultError == null ? "" : " Vault lookup failed: " + vaultError));
+                if (isBlank(username) || isBlank(password)) {
+                    throw new IllegalStateException(
+                            "Missing DB credentials. Set TOOL_USE_POLICY_DB_USERNAME + TOOL_USE_POLICY_DB_PASSWORD, "
+                                    + "or set TOOL_USE_POLICY_DB_CREDS_JSON/TOOL_USE_POLICY_DB_CREDS_FILE to a Vault static-creds JSON file."
+                                    + (vaultError == null ? "" : " Vault lookup failed: " + vaultError));
+                }
             }
 
             return new DbConfig(url, dbName, schema, username, password);
