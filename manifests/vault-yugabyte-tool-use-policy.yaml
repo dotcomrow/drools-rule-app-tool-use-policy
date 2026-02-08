@@ -108,6 +108,31 @@ spec:
                 done
               }
 
+              vault_write_with_retry() {
+                desc="$1"; shift
+                attempt=1
+                while [ "$attempt" -le "$VAULT_ROTATE_RETRY_ATTEMPTS" ]; do
+                  echo "Vault write: ${desc} (attempt ${attempt}/${VAULT_ROTATE_RETRY_ATTEMPTS})"
+                  set +e
+                  output="$(vault write "$@" 2>&1)"
+                  status=$?
+                  set -e
+                  if [ "$status" -eq 0 ]; then
+                    [ -n "$output" ] && printf "%s\n" "$output"
+                    return 0
+                  fi
+                  printf "%s\n" "$output" >&2
+                  if is_transient_yb_error "$output" && [ "$attempt" -lt "$VAULT_ROTATE_RETRY_ATTEMPTS" ]; then
+                    echo "Retrying vault write after transient Yugabyte error..."
+                    sleep "$VAULT_ROTATE_RETRY_SLEEP"
+                    attempt=$((attempt + 1))
+                    continue
+                  fi
+                  echo "ERROR: vault write failed: ${desc}"
+                  return "$status"
+                done
+              }
+
               rotate_and_wait_static_creds() {
                 role_name="$1"
                 attempt=1
@@ -236,7 +261,7 @@ spec:
                 psql -h "$PGHOST" -p "$PGPORT" -U "$VAULTADMIN_USER" -d "$APP_DB" -v ON_ERROR_STOP=1 \
                   -c "ALTER ROLE \"${APP_USER}\" SET search_path = ${APP_SCHEMA},public;"
 
-              vault write "${DB_MOUNT}/static-roles/${ROLE_STATIC_APP}" \
+              vault_write_with_retry "static role ${ROLE_STATIC_APP}" "${DB_MOUNT}/static-roles/${ROLE_STATIC_APP}" \
                 db_name="${DB_NAME_IN_VAULT}" \
                 username="${APP_USER}" \
                 rotation_period="24h" \
