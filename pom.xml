@@ -61,23 +61,6 @@
       <scope>provided</scope>
     </dependency>
 
-    <!--
-      YugabyteDB speaks the PostgreSQL wire protocol, so we use the PostgreSQL JDBC driver.
-      We include it in the KJAR's Maven deps so KIE Server can resolve it at container load time.
-    -->
-    <dependency>
-      <groupId>org.postgresql</groupId>
-      <artifactId>postgresql</artifactId>
-      <version>42.7.2</version>
-      <exclusions>
-        <!-- Prevent Workbench/JBoss classloader conflicts with checker-qual already present in the platform. -->
-        <exclusion>
-          <groupId>org.checkerframework</groupId>
-          <artifactId>checker-qual</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>

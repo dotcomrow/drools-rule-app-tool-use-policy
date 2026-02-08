@@ -11,6 +11,8 @@ risk and context. The rules produce a ToolUseDecision with ALLOW, REVIEW, or DEN
 mvn -q -DskipTests package
 ```
 
+Note: KJAR builds use `org.kie:kie-maven-plugin` and require running Maven under Java 11 (CI uses Temurin 11).
+
 ## Settings
 Run the generator to list all available import/register settings and their defaults:
 
@@ -38,21 +40,18 @@ You can edit these from Workbench or in an external IDE.
 pattern as the Drools system:
 - Creates DB `rules_tool_use` (if missing)
 - Creates DB role `tool_use_app` (static username)
-- Configures Vault DB static role `yugabyte-db/static-roles/tool-use-policy-yb-app` (rotating password)
+- Configures Vault DB static role `yugabyte-db/static-roles/tool-use-policy-yb-app` (Vault-managed password, long rotation period)
 - Writes Vault policy `tool-use-policy-yb-app` for reading `yugabyte-db/static-creds/tool-use-policy-yb-app`
 - Ensures the Vault Kubernetes auth role `drools` includes that policy (merged with existing policies)
 - Creates schema/table: `tool_use.tool_use_audit`
 
 No static DB password is stored in Kubernetes for this app.
 
-Runtime overrides (optional, defaults match the cluster services):
-- `TOOL_USE_POLICY_VAULT_ADDR` (or `VAULT_ADDR`)
-- `TOOL_USE_POLICY_VAULT_ROLE` (defaults to `drools`)
-- `TOOL_USE_POLICY_VAULT_STATIC_ROLE` (defaults to `tool-use-policy-yb-app`)
-- `TOOL_USE_POLICY_DB_HOST` / `TOOL_USE_POLICY_DB_PORT`
-- `TOOL_USE_POLICY_DB_NAME` (defaults to `rules_tool_use`)
-- `TOOL_USE_POLICY_DB_SCHEMA` (defaults to `tool_use`)
-- `TOOL_USE_POLICY_DB_SSLMODE` (defaults to `disable`)
+Runtime expectations:
+- KIE Server provides a server-managed datasource at `java:jboss/datasources/ToolUsePolicyDS` wired to the app DB.
+- Optional overrides in this KJAR:
+  - `TOOL_USE_POLICY_DB_JNDI` (defaults to `java:jboss/datasources/ToolUsePolicyDS`)
+  - `TOOL_USE_POLICY_DB_SCHEMA` (defaults to `tool_use`)
 
 ## Publish to GitHub Packages
 Update the owner/repo in pom.xml if needed, then configure Maven credentials:
@@ -115,7 +114,7 @@ Content-Type: application/json
 }
 ```
 
-### DB test (Vault static creds + Yugabyte)
+### DB test (server-managed datasource)
 ```
 POST /kie-server/services/rest/server/containers/tool-use-policy
 Content-Type: application/json

@@ -198,20 +198,21 @@ spec:
               ALLOWED_ROLES_RAW="$(vault read -field=allowed_roles "${DB_MOUNT}/config/${DB_NAME_IN_VAULT}" 2>/dev/null || true)"
               if [ -n "${ALLOWED_ROLES_RAW:-}" ]; then
                 # Vault prints list fields like "[role1 role2]" and wildcards like "[*]".
-                # Be permissive in parsing: depending on Vault CLI/version, the value may be wrapped/quoted.
-                ALLOWED_ROLES_NORM="$(printf '%s' "${ALLOWED_ROLES_RAW}" | tr -d '\r' | tr -d '[]' | tr ',' '\n' | tr ' ' '\n' | \
-                  sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/^\"//;s/\"$//' | sed "s/^'//;s/'$//" | awk 'NF')"
-                # Treat "*" as a wildcard (allow any role). Use fixed-string matching to avoid regex quirks.
-                if printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -Fxq '*'; then
-                  true
-                elif printf '%s' "${ALLOWED_ROLES_RAW}" | grep -Fq '*'; then
-                  true
-                elif printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -Fxq "${ROLE_STATIC_APP}"; then
-                  true
-                else
-                  echo "ERROR: ${DB_MOUNT}/config/${DB_NAME_IN_VAULT} allowed_roles does not include ${ROLE_STATIC_APP} (allowed_roles=${ALLOWED_ROLES_RAW})."
-                  exit 1
-                fi
+                # If allowed_roles contains a literal "*", treat it as "allow any role".
+                case "${ALLOWED_ROLES_RAW}" in
+                  *\**)
+                    true
+                    ;;
+                  *)
+                  # Otherwise require an exact match on our role name (as a token in the list).
+                  ALLOWED_ROLES_NORM="$(printf '%s' "${ALLOWED_ROLES_RAW}" | tr -d '\r' | tr -d '[]' | tr ',' '\n' | tr ' ' '\n' | \
+                    sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/^\"//;s/\"$//' | sed "s/^'//;s/'$//" | awk 'NF')"
+                  if ! printf '%s\n' "${ALLOWED_ROLES_NORM}" | grep -Fxq "${ROLE_STATIC_APP}"; then
+                    echo "ERROR: ${DB_MOUNT}/config/${DB_NAME_IN_VAULT} allowed_roles does not include ${ROLE_STATIC_APP} (allowed_roles=${ALLOWED_ROLES_RAW})."
+                    exit 1
+                  fi
+                    ;;
+                esac
               fi
 
               until pg_isready -h "$PGHOST" -p "$PGPORT" >/dev/null 2>&1; do
@@ -270,10 +271,21 @@ spec:
               vault_write_with_retry "static role ${ROLE_STATIC_APP}" "${DB_MOUNT}/static-roles/${ROLE_STATIC_APP}" \
                 db_name="${DB_NAME_IN_VAULT}" \
                 username="${APP_USER}" \
-                rotation_period="24h" \
+                # Treat this app DB like a "configuration DB": keep passwords stable for long periods.
+                # If you later want frequent rotation, lower this and ensure the runtime refreshes the datasource creds.
+                rotation_period="8760h" \
                 rotation_statements="ALTER ROLE \"${APP_USER}\" WITH PASSWORD '{{password}}';"
 
-              rotate_and_wait_static_creds "${ROLE_STATIC_APP}"
+              # Avoid rotating on every ArgoCD sync. If static-creds already exist and work, keep them.
+              DB_USER="$(vault read -field=username ${DB_MOUNT}/static-creds/${ROLE_STATIC_APP} 2>/dev/null || true)"
+              DB_PASS="$(vault read -field=password ${DB_MOUNT}/static-creds/${ROLE_STATIC_APP} 2>/dev/null || true)"
+              if [ -n "${DB_USER:-}" ] && [ -n "${DB_PASS:-}" ] && PGPASSWORD="$DB_PASS" psql -h "$PGHOST" -p "$PGPORT" -U "$DB_USER" -d "$APP_DB" -v ON_ERROR_STOP=1 -c "SELECT 1;" >/dev/null 2>&1; then
+                echo "static-creds ${ROLE_STATIC_APP} already valid; not rotating"
+              else
+                rotate_and_wait_static_creds "${ROLE_STATIC_APP}"
+                DB_USER="$(vault read -field=username ${DB_MOUNT}/static-creds/${ROLE_STATIC_APP})"
+                DB_PASS="$(vault read -field=password ${DB_MOUNT}/static-creds/${ROLE_STATIC_APP})"
+              fi
 
               vault policy write "${POLICY_STATIC_APP}" - <<EOF
               path "${DB_MOUNT}/static-creds/${ROLE_STATIC_APP}" { capabilities = ["read"] }
@@ -281,8 +293,6 @@ spec:
 
               ensure_vault_k8s_role_policy "${K8S_ROLE_PATH}" "${POLICY_STATIC_APP}"
 
-              DB_USER="$(vault read -field=username ${DB_MOUNT}/static-creds/${ROLE_STATIC_APP})"
-              DB_PASS="$(vault read -field=password ${DB_MOUNT}/static-creds/${ROLE_STATIC_APP})"
               export PGPASSWORD="$DB_PASS"
 
               run_psql_with_retry "create schema ${APP_SCHEMA}" \
