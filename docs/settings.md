@@ -57,7 +57,7 @@ Version resolution (when VERSION/REPO_VERSION is empty or 'auto'):
 | `FORCE_REDEPLOY` | no | `false` | config | If true, delete and re-register even when the container already matches the desired version. |
 | `CONTAINER_STATUS` | no | `STARTED` | config | Container status after registration (e.g., STARTED or STOPPED). |
 | `DEPLOY_TO_KIE_SERVER_REST` | no | `true` | config | If true, deploy/update the container directly on the KIE server(s) via KIE Server REST (workaround when controller-based install is blocked). |
-| `KIE_SERVER_REST_BASE_URL_TEMPLATE` | no | `` | config | Base URL template for KIE Server REST. Use '{id}' placeholder for the server id. |
+| `KIE_SERVER_REST_BASE_URL_TEMPLATE` | no | `http://kie-server-auth-proxy.drools.svc.cluster.local:8080/kie-server/services/rest/server` | config | Base URL template for KIE Server REST. Use '{id}' placeholder for the server id. |
 | `KIE_SERVER_REST_SCHEME` | no | `http` | config | Scheme used when composing KIE Server REST base URL (http or https). |
 | `KIE_SERVER_REST_HEADLESS_SERVICE` | no | `kie-server-headless` | config | Headless service name used when composing per-pod KIE Server REST URL. |
 | `KIE_SERVER_REST_NAMESPACE` | no | `drools` | config | Namespace used when composing per-pod KIE Server REST URL. |

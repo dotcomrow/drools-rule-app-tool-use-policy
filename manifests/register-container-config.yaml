@@ -28,7 +28,7 @@ data:
   DEPLOY_TO_KIE_SERVER_REST: "true"
   # If set, overrides headless service + namespace composition. Use "{id}" placeholder for the KIE server id.
   # Example: "http://{id}.kie-server-headless.drools.svc.cluster.local:8080/kie-server/services/rest/server"
-  KIE_SERVER_REST_BASE_URL_TEMPLATE: ""
+  KIE_SERVER_REST_BASE_URL_TEMPLATE: "http://kie-server-auth-proxy.drools.svc.cluster.local:8080/kie-server/services/rest/server"
   KIE_SERVER_REST_SCHEME: "http"
   KIE_SERVER_REST_HEADLESS_SERVICE: "kie-server-headless"
   KIE_SERVER_REST_NAMESPACE: "drools"

@@ -76,8 +76,8 @@ data:
   # Default: "true" (source: config)
   DEPLOY_TO_KIE_SERVER_REST: "true"
   # Optional. Base URL template for KIE Server REST. Use '{id}' placeholder for the server id.
-  # Default: empty (source: config)
-  KIE_SERVER_REST_BASE_URL_TEMPLATE: ""
+  # Default: "http://kie-server-auth-proxy.drools.svc.cluster.local:8080/kie-server/services/rest/server" (source: config)
+  KIE_SERVER_REST_BASE_URL_TEMPLATE: "http://kie-server-auth-proxy.drools.svc.cluster.local:8080/kie-server/services/rest/server"
   # Optional. Scheme used when composing KIE Server REST base URL (http or https).
   # Default: "http" (source: config)
   KIE_SERVER_REST_SCHEME: "http"
