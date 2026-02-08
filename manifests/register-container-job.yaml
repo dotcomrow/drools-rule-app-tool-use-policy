@@ -747,10 +747,12 @@ spec:
                 if [ "$code" = "200" ] && [ "$existing_type" = "SUCCESS" ]; then
                   has_container="true"
                 fi
+                NEED_CREATE="true"
                 if [ "$has_container" = "true" ]; then
                   echo "KIE server ${id} has container ${CONTAINER_ID} version ${existing_version:-unknown}"
                   if [ "${FORCE_REDEPLOY}" != "true" ] && [ "$existing_version" = "$VERSION" ]; then
                     echo "KIE server container already at desired version; skipping create."
+                    NEED_CREATE="false"
                   else
                     echo "Deleting existing KIE server container before deploy..."
                     del_body="$(mktemp)"
@@ -796,21 +798,10 @@ spec:
                   --arg ver "$VERSION" \
                   '{ "container-id": $cid, "release-id": { "group-id": $gid, "artifact-id": $aid, "version": $ver } }')"
 
-                put_body="$(mktemp)"
-                if [ "$KIE_SERVER_REST_AUTH_MODE" = "bearer" ]; then
-                  ensure_token
-                  put_code="$(curl -sS \
-                    -H "Authorization: Bearer ${TOKEN}" \
-                    -H "Accept: application/json" \
-                    -H "Content-Type: application/json" \
-                    -H "X-KIE-ContentType: JSON" \
-                    -H "X-KIE-Server-Id: ${id}" \
-                    -H "KIE-Server-Id: ${id}" \
-                    -o "$put_body" -w '%{http_code}' -X PUT \
-                    "${base}/containers/${CONTAINER_ID}" \
-                    --data-binary "$payload" || true)"
-                  if [ "$put_code" = "401" ]; then
-                    fetch_token
+                if [ "$NEED_CREATE" = "true" ]; then
+                  put_body="$(mktemp)"
+                  if [ "$KIE_SERVER_REST_AUTH_MODE" = "bearer" ]; then
+                    ensure_token
                     put_code="$(curl -sS \
                       -H "Authorization: Bearer ${TOKEN}" \
                       -H "Accept: application/json" \
@@ -821,26 +812,39 @@ spec:
                       -o "$put_body" -w '%{http_code}' -X PUT \
                       "${base}/containers/${CONTAINER_ID}" \
                       --data-binary "$payload" || true)"
+                    if [ "$put_code" = "401" ]; then
+                      fetch_token
+                      put_code="$(curl -sS \
+                        -H "Authorization: Bearer ${TOKEN}" \
+                        -H "Accept: application/json" \
+                        -H "Content-Type: application/json" \
+                        -H "X-KIE-ContentType: JSON" \
+                        -H "X-KIE-Server-Id: ${id}" \
+                        -H "KIE-Server-Id: ${id}" \
+                        -o "$put_body" -w '%{http_code}' -X PUT \
+                        "${base}/containers/${CONTAINER_ID}" \
+                        --data-binary "$payload" || true)"
+                    fi
+                  else
+                    put_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
+                      -H "Accept: application/json" \
+                      -H "Content-Type: application/json" \
+                      -H "X-KIE-ContentType: JSON" \
+                      -H "X-KIE-Server-Id: ${id}" \
+                      -H "KIE-Server-Id: ${id}" \
+                      -o "$put_body" -w '%{http_code}' -X PUT \
+                      "${base}/containers/${CONTAINER_ID}" \
+                      --data-binary "$payload" || true)"
                   fi
-                else
-                  put_code="$(curl -sS -u "${KIE_SERVER_REST_USER}:${KIE_SERVER_REST_PASS}" \
-                    -H "Accept: application/json" \
-                    -H "Content-Type: application/json" \
-                    -H "X-KIE-ContentType: JSON" \
-                    -H "X-KIE-Server-Id: ${id}" \
-                    -H "KIE-Server-Id: ${id}" \
-                    -o "$put_body" -w '%{http_code}' -X PUT \
-                    "${base}/containers/${CONTAINER_ID}" \
-                    --data-binary "$payload" || true)"
-                fi
-                put_json="$(cat "$put_body" 2>/dev/null || true)"
-                rm -f "$put_body"
-                put_type="$(printf '%s' "$put_json" | jq -r '.type // empty' 2>/dev/null || true)"
-                if [ "$put_code" -lt 200 ] || [ "$put_code" -ge 300 ] || [ "$put_type" != "SUCCESS" ]; then
-                  echo "ERROR: Failed to deploy container on ${id} (HTTP ${put_code}, type=${put_type:-?})"
-                  printf '%s\n' "$put_json" | head -c 2000 || true
-                  echo
-                  return 1
+                  put_json="$(cat "$put_body" 2>/dev/null || true)"
+                  rm -f "$put_body"
+                  put_type="$(printf '%s' "$put_json" | jq -r '.type // empty' 2>/dev/null || true)"
+                  if [ "$put_code" -lt 200 ] || [ "$put_code" -ge 300 ] || [ "$put_type" != "SUCCESS" ]; then
+                    echo "ERROR: Failed to deploy container on ${id} (HTTP ${put_code}, type=${put_type:-?})"
+                    printf '%s\n' "$put_json" | head -c 2000 || true
+                    echo
+                    return 1
+                  fi
                 fi
 
                 case "$CONTAINER_STATUS" in
