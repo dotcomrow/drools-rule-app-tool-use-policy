@@ -4,11 +4,16 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -33,6 +38,14 @@ public final class ToolUsePolicyDb {
             cfg = DbConfig.fromEnv();
         } catch (Exception e) {
             return DbTestResult.failure("DB config error: " + e.getMessage());
+        }
+
+        // KIE Server / Workbench images include a PostgreSQL JDBC driver module. Attempt to load it explicitly so
+        // DriverManager can find it even if the container hasn't initialized DB connectivity yet.
+        try {
+            Class.forName("org.postgresql.Driver");
+        } catch (ClassNotFoundException ignored) {
+            // Keep going. If no driver is available at runtime, we'll surface a useful error from the connection call.
         }
 
         try (Connection conn = DriverManager.getConnection(cfg.jdbcUrl, cfg.username, cfg.password)) {
@@ -96,6 +109,9 @@ public final class ToolUsePolicyDb {
     }
 
     private static final class DbConfig {
+        private static final Object VAULT_LOCK = new Object();
+        private static volatile CachedCreds cachedVaultCreds;
+
         final String jdbcUrl;
         final String dbName;
         final String schema;
@@ -116,6 +132,7 @@ public final class ToolUsePolicyDb {
             String port = env("TOOL_USE_POLICY_DB_PORT", "5433");
             String dbName = env("TOOL_USE_POLICY_DB_NAME", "rules_tool_use");
             String schema = env("TOOL_USE_POLICY_DB_SCHEMA", "tool_use");
+            String sslmode = env("TOOL_USE_POLICY_DB_SSLMODE", "disable");
 
             validateIdent("schema", schema);
             validateIdent("dbName", dbName);
@@ -130,7 +147,8 @@ public final class ToolUsePolicyDb {
                                 + dbName
                                 + "?currentSchema="
                                 + schema
-                                + "&sslmode=disable";
+                                + "&sslmode="
+                                + sslmode;
             }
 
             String username = env("TOOL_USE_POLICY_DB_USERNAME");
@@ -152,9 +170,23 @@ public final class ToolUsePolicyDb {
             }
 
             if (isBlank(username) || isBlank(password)) {
+                // Final fallback: fetch static creds directly from Vault using Kubernetes auth.
+                // This avoids needing per-app env var wiring in the KIE server deployment.
+                String vaultError = null;
+                try {
+                    VaultCreds creds = vaultStaticCreds();
+                    if (creds != null && !isBlank(creds.username) && !isBlank(creds.password)) {
+                        username = creds.username;
+                        password = creds.password;
+                    }
+                } catch (Exception e) {
+                    vaultError = e.getMessage();
+                }
+
                 throw new IllegalStateException(
                         "Missing DB credentials. Set TOOL_USE_POLICY_DB_USERNAME + TOOL_USE_POLICY_DB_PASSWORD, "
-                                + "or set TOOL_USE_POLICY_DB_CREDS_JSON/TOOL_USE_POLICY_DB_CREDS_FILE to a Vault static-creds JSON file.");
+                                + "or set TOOL_USE_POLICY_DB_CREDS_JSON/TOOL_USE_POLICY_DB_CREDS_FILE to a Vault static-creds JSON file."
+                                + (vaultError == null ? "" : " Vault lookup failed: " + vaultError));
             }
 
             return new DbConfig(url, dbName, schema, username, password);
@@ -175,6 +207,113 @@ public final class ToolUsePolicyDb {
             return null;
         }
 
+        private static VaultCreds vaultStaticCreds() throws IOException, InterruptedException {
+            String enabled = env("TOOL_USE_POLICY_VAULT_ENABLED", "true");
+            if ("false".equalsIgnoreCase(enabled)) {
+                return null;
+            }
+
+            int cacheSeconds = 60;
+            try {
+                cacheSeconds = Integer.parseInt(env("TOOL_USE_POLICY_VAULT_CACHE_SECONDS", "60"));
+            } catch (NumberFormatException ignored) {
+                cacheSeconds = 60;
+            }
+
+            long now = System.currentTimeMillis();
+            CachedCreds c = cachedVaultCreds;
+            if (c != null && now < c.expiresAtMs) {
+                return c.creds;
+            }
+
+            synchronized (VAULT_LOCK) {
+                c = cachedVaultCreds;
+                if (c != null && now < c.expiresAtMs) {
+                    return c.creds;
+                }
+                VaultCreds fetched = fetchVaultStaticCreds();
+                if (fetched == null) {
+                    return null;
+                }
+                cachedVaultCreds = new CachedCreds(fetched, now + (cacheSeconds * 1000L));
+                return fetched;
+            }
+        }
+
+        private static VaultCreds fetchVaultStaticCreds() throws IOException, InterruptedException {
+            String addr = envAny(new String[] {"TOOL_USE_POLICY_VAULT_ADDR", "VAULT_ADDR"}, "http://vault.vault.svc.cluster.local:8200");
+            String authPath = env("TOOL_USE_POLICY_VAULT_AUTH_PATH", "kubernetes");
+            String role = env("TOOL_USE_POLICY_VAULT_ROLE", "drools");
+            String jwtPath = env("TOOL_USE_POLICY_VAULT_JWT_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/token");
+
+            String dbMount = env("TOOL_USE_POLICY_VAULT_DB_MOUNT", "yugabyte-db");
+            String staticRole = env("TOOL_USE_POLICY_VAULT_STATIC_ROLE", "tool-use-policy-yb-app");
+
+            int timeoutSeconds = 5;
+            try {
+                timeoutSeconds = Integer.parseInt(env("TOOL_USE_POLICY_VAULT_TIMEOUT_SECONDS", "5"));
+            } catch (NumberFormatException ignored) {
+                timeoutSeconds = 5;
+            }
+
+            String jwt = Files.readString(Path.of(jwtPath), StandardCharsets.UTF_8).trim();
+            if (jwt.isBlank()) {
+                throw new IllegalStateException("Vault JWT is empty at " + jwtPath);
+            }
+
+            HttpClient client =
+                    HttpClient.newBuilder()
+                            .connectTimeout(Duration.ofSeconds(timeoutSeconds))
+                            .build();
+
+            String loginUrl = addr + "/v1/auth/" + authPath + "/login";
+            String loginPayload = "{\"role\":\"" + role + "\",\"jwt\":\"" + jwt + "\"}";
+            HttpRequest loginReq =
+                    HttpRequest.newBuilder(URI.create(loginUrl))
+                            .timeout(Duration.ofSeconds(timeoutSeconds))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(loginPayload))
+                            .build();
+            HttpResponse<String> loginResp = client.send(loginReq, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (loginResp.statusCode() != 200) {
+                throw new IllegalStateException("Vault login failed: HTTP " + loginResp.statusCode());
+            }
+
+            String token = jsonStringField(loginResp.body(), "client_token");
+            if (isBlank(token)) {
+                throw new IllegalStateException("Vault login response missing client_token");
+            }
+
+            String credsUrl = addr + "/v1/" + dbMount + "/static-creds/" + staticRole;
+            HttpRequest credsReq =
+                    HttpRequest.newBuilder(URI.create(credsUrl))
+                            .timeout(Duration.ofSeconds(timeoutSeconds))
+                            .header("X-Vault-Token", token)
+                            .GET()
+                            .build();
+            HttpResponse<String> credsResp = client.send(credsReq, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (credsResp.statusCode() != 200) {
+                throw new IllegalStateException("Vault static-creds read failed: HTTP " + credsResp.statusCode());
+            }
+
+            String u = jsonStringField(credsResp.body(), "username");
+            String p = jsonStringField(credsResp.body(), "password");
+            if (isBlank(u) || isBlank(p)) {
+                throw new IllegalStateException("Vault static-creds response missing username/password");
+            }
+            return new VaultCreds(u, p);
+        }
+
+        private static String envAny(String[] keys, String defaultValue) {
+            for (String k : keys) {
+                String v = System.getenv(k);
+                if (v != null && !v.isBlank()) {
+                    return v;
+                }
+            }
+            return defaultValue;
+        }
+
         private static String env(String key) {
             return System.getenv(key);
         }
@@ -191,5 +330,24 @@ public final class ToolUsePolicyDb {
             return v == null || v.isBlank();
         }
     }
-}
 
+    private static final class VaultCreds {
+        final String username;
+        final String password;
+
+        VaultCreds(String username, String password) {
+            this.username = username;
+            this.password = password;
+        }
+    }
+
+    private static final class CachedCreds {
+        final VaultCreds creds;
+        final long expiresAtMs;
+
+        CachedCreds(VaultCreds creds, long expiresAtMs) {
+            this.creds = creds;
+            this.expiresAtMs = expiresAtMs;
+        }
+    }
+}

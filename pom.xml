@@ -61,12 +61,10 @@
       <scope>provided</scope>
     </dependency>
 
-    <!-- Needed for the DB test rule (YugabyteDB via Postgres wire protocol). -->
-    <dependency>
-      <groupId>org.postgresql</groupId>
-      <artifactId>postgresql</artifactId>
-      <version>42.7.9</version>
-    </dependency>
+    <!--
+      DB access in this cluster uses the PostgreSQL driver already present in the Workbench/KIE Server images.
+      Keeping it out of the KJAR avoids Business Central class-verifier issues with multi-release JDBC jars.
+    -->
 
     <dependency>
       <groupId>junit</groupId>
