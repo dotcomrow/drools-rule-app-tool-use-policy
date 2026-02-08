@@ -31,20 +31,20 @@ data:
   # Default: "prod" (source: config)
   REPO_BRANCH: "prod"
   # Optional. Version to stamp into pom.xml after import. If empty or 'auto', derived from the repo.
-  # Default: empty (source: config)
-  REPO_VERSION: ""
+  # Default: "\"1.0.150" (source: config)
+  REPO_VERSION: "\"1.0.150"
   # Optional. Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom.
-  # Default: empty (source: config)
+  # Default: empty (source: job)
   VERSION_PREFIX: ""
   # Optional. Max seconds to wait for async space creation to complete.
-  # Default: "300" (source: config)
+  # Default: "300" (source: job)
   SPACE_WAIT_SECONDS: "300"
   # Optional. Owner for the space. Leave empty to auto-pick controller user or service account.
-  # Default: empty (source: config)
+  # Default: empty (source: job)
   SPACE_OWNER: ""
   # Optional. If true, keep the import pod running on failure for debugging.
-  # Default: "false" (source: config)
-  HOLD_POD: "false"
+  # Default: empty (source: none)
+  HOLD_POD: ""
   # Optional. If true, log REST responses for Workbench API calls.
-  # Default: "true" (source: config)
-  DEBUG_REST: "true"
+  # Default: empty (source: none)
+  DEBUG_REST: ""
