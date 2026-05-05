@@ -12,9 +12,6 @@ data:
   # Required. Workbench controller REST base URL.
   # Default: "http://kie-workbench.drools.svc.cluster.local:8080/business-central/rest/controller" (source: config)
   WORKBENCH_CONTROLLER_URL: "http://kie-workbench.drools.svc.cluster.local:8080/business-central/rest/controller"
-  # Optional. Keycloak token endpoint used for controller and KIE server bearer authentication.
-  # Default: "http://keycloak-bootstrap.keycloak.svc.cluster.local:8080/realms/internal/protocol/openid-connect/token" (source: config)
-  TOKEN_URL: "http://keycloak-bootstrap.keycloak.svc.cluster.local:8080/realms/internal/protocol/openid-connect/token"
   # Optional. Git URL used to resolve the container version when VERSION is empty/auto.
   # Default: "https://github.com/dotcomrow/drools-rule-app-tool-use-policy.git" (source: config)
   REPO_URL: "https://github.com/dotcomrow/drools-rule-app-tool-use-policy.git"
@@ -49,8 +46,8 @@ data:
   # Default: "tool-use-policy" (source: config)
   ARTIFACT_ID: "tool-use-policy"
   # Optional. KJAR version to register in the container spec. If empty or 'auto', derived from the repo.
-  # Default: "1.0.181" (source: config)
-  VERSION: "1.0.181"
+  # Default: "1.0.183" (source: config)
+  VERSION: "1.0.183"
   # Optional. Prefix used when deriving a version from git history (e.g. 1.0.). Leave empty to infer from pom.
   # Default: empty (source: config)
   VERSION_PREFIX: ""

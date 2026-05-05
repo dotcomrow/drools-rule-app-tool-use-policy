@@ -14,7 +14,7 @@ data:
   REPO_NAME: "tool-use-policy"
   REPO_URL: "https://github.com/dotcomrow/drools-rule-app-tool-use-policy.git"
   REPO_BRANCH: "prod"
-  REPO_VERSION: "1.0.181"
+  REPO_VERSION: "1.0.183"
   VERSION_PREFIX: ""
   SPACE_WAIT_SECONDS: "300"
   SPACE_OWNER: ""
