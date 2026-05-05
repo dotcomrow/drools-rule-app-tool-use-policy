@@ -126,7 +126,7 @@ spec:
               if [ -z "$GH_USER" ] || [ -z "$GH_TOKEN" ]; then
                 echo "WARN: GitHub credentials not found; attempting anonymous repo access."
               fi
-              TOKEN_URL="https://auth.suncoast.systems/realms/internal/protocol/openid-connect/token"
+              TOKEN_URL="${TOKEN_URL:-http://keycloak-bootstrap.keycloak.svc.cluster.local:8080/realms/internal/protocol/openid-connect/token}"
               TOKEN_REFRESH_SKEW="${TOKEN_REFRESH_SKEW:-30}"
               fetch_token() {
                 TOKEN_RESPONSE="$(curl -sS -w '\n%{http_code}' \
@@ -154,8 +154,8 @@ spec:
                     echo "Keycloak token missing in response"
                   fi
                 else
-                  TOKEN_ERROR="$(printf '%s' "$TOKEN_BODY" | jq -r '.error // empty')"
-                  TOKEN_ERROR_DESC="$(printf '%s' "$TOKEN_BODY" | jq -r '.error_description // empty')"
+                  TOKEN_ERROR="$(printf '%s' "$TOKEN_BODY" | jq -r '.error // empty' 2>/dev/null || true)"
+                  TOKEN_ERROR_DESC="$(printf '%s' "$TOKEN_BODY" | jq -r '.error_description // empty' 2>/dev/null || true)"
                   echo "Keycloak token request failed: HTTP ${TOKEN_CODE} ${TOKEN_ERROR}${TOKEN_ERROR_DESC:+ - }${TOKEN_ERROR_DESC}"
                 fi
                 if [ -z "$TOKEN" ]; then

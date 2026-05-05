@@ -7,6 +7,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "10"
 data:
   WORKBENCH_BASE: "http://kie-workbench.drools.svc.cluster.local:8080/business-central"
+  TOKEN_URL: "http://keycloak-bootstrap.keycloak.svc.cluster.local:8080/realms/internal/protocol/openid-connect/token"
   SPACE_NAME: "rules"
   SPACE_DESC: "Rules"
   DEFAULT_GROUP_ID: "com.dotcomrow.rules"

@@ -12,6 +12,9 @@ data:
   # Required. Workbench controller REST base URL.
   # Default: "http://kie-workbench.drools.svc.cluster.local:8080/business-central/rest/controller" (source: config)
   WORKBENCH_CONTROLLER_URL: "http://kie-workbench.drools.svc.cluster.local:8080/business-central/rest/controller"
+  # Optional. Keycloak token endpoint used for controller and KIE server bearer authentication.
+  # Default: "http://keycloak-bootstrap.keycloak.svc.cluster.local:8080/realms/internal/protocol/openid-connect/token" (source: config)
+  TOKEN_URL: "http://keycloak-bootstrap.keycloak.svc.cluster.local:8080/realms/internal/protocol/openid-connect/token"
   # Optional. Git URL used to resolve the container version when VERSION is empty/auto.
   # Default: "https://github.com/dotcomrow/drools-rule-app-tool-use-policy.git" (source: config)
   REPO_URL: "https://github.com/dotcomrow/drools-rule-app-tool-use-policy.git"

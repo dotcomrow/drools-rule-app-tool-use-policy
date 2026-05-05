@@ -260,7 +260,7 @@ spec:
                 exit 1
               fi
 
-              TOKEN_URL="https://auth.suncoast.systems/realms/internal/protocol/openid-connect/token"
+              TOKEN_URL="${TOKEN_URL:-http://keycloak-bootstrap.keycloak.svc.cluster.local:8080/realms/internal/protocol/openid-connect/token}"
               TOKEN_RESPONSE="$(curl -sS -w '\n%{http_code}' \
                 -H "Content-Type: application/x-www-form-urlencoded" \
                 --data-urlencode "grant_type=client_credentials" \
@@ -275,8 +275,8 @@ spec:
                 TOKEN=""
               fi
               if [ -z "$TOKEN" ]; then
-                TOKEN_ERROR="$(printf '%s' "$TOKEN_BODY" | jq -r '.error // empty')"
-                TOKEN_ERROR_DESC="$(printf '%s' "$TOKEN_BODY" | jq -r '.error_description // empty')"
+                TOKEN_ERROR="$(printf '%s' "$TOKEN_BODY" | jq -r '.error // empty' 2>/dev/null || true)"
+                TOKEN_ERROR_DESC="$(printf '%s' "$TOKEN_BODY" | jq -r '.error_description // empty' 2>/dev/null || true)"
                 if debug_enabled; then
                   debug_rest "token request" "$TOKEN_CODE" "$TOKEN_BODY"
                 fi

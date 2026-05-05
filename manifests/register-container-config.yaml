@@ -7,6 +7,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "10"
 data:
   WORKBENCH_CONTROLLER_URL: "http://kie-workbench.drools.svc.cluster.local:8080/business-central/rest/controller"
+  TOKEN_URL: "http://keycloak-bootstrap.keycloak.svc.cluster.local:8080/realms/internal/protocol/openid-connect/token"
   REPO_URL: "https://github.com/dotcomrow/drools-rule-app-tool-use-policy.git"
   REPO_BRANCH: "prod"
   MAVEN_REPO_URL: "https://maven.pkg.github.com/dotcomrow/drools-rule-app-tool-use-policy"

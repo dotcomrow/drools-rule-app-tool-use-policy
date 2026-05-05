@@ -12,6 +12,9 @@ data:
   # Required. Base URL for Workbench (business-central).
   # Default: "http://kie-workbench.drools.svc.cluster.local:8080/business-central" (source: config)
   WORKBENCH_BASE: "http://kie-workbench.drools.svc.cluster.local:8080/business-central"
+  # Optional. Keycloak token endpoint used for Workbench API authentication.
+  # Default: "http://keycloak-bootstrap.keycloak.svc.cluster.local:8080/realms/internal/protocol/openid-connect/token" (source: config)
+  TOKEN_URL: "http://keycloak-bootstrap.keycloak.svc.cluster.local:8080/realms/internal/protocol/openid-connect/token"
   # Required. Workbench space name to create/use.
   # Default: "rules" (source: config)
   SPACE_NAME: "rules"
