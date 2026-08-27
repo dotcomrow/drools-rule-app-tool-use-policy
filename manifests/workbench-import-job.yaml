@@ -8,6 +8,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "25"
     rules.dotcomrow/repo-version: "1.0.183"
 spec:
+  activeDeadlineSeconds: 900
   backoffLimit: 3
   ttlSecondsAfterFinished: 3600
   template:
