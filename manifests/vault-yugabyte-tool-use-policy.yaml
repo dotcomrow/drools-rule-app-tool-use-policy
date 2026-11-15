@@ -7,7 +7,8 @@ metadata:
     argocd.argoproj.io/sync-options: Replace=true,Force=true
     argocd.argoproj.io/sync-wave: "15"
 spec:
-  backoffLimit: 0
+  # A transient DNS or Yugabyte catalog failure must not leave the Argo app degraded.
+  backoffLimit: 2
   ttlSecondsAfterFinished: 3600
   template:
     metadata:
@@ -72,7 +73,7 @@ spec:
               DDL_RETRY_SLEEP="${DDL_RETRY_SLEEP:-3}"
 
               is_transient_yb_error() {
-                printf '%s' "$1" | grep -Eq "Restarting a DDL transaction not supported|MISMATCHED_SCHEMA|SQLSTATE 40001|catalog snapshot used for this transaction has been invalidated|could not serialize access"
+                printf '%s' "$1" | grep -Eqi "Restarting a DDL transaction not supported|MISMATCHED_SCHEMA|SQLSTATE 40001|catalog snapshot used for this transaction has been invalidated|could not serialize access|could not translate host name|temporary failure in name resolution|name or service not known|try again|connection refused|connection timed out|timeout expired|server closed the connection unexpectedly"
               }
 
               run_psql_with_retry() {
