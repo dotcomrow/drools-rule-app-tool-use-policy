@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: Replace=true,Force=true
     argocd.argoproj.io/sync-wave: "25"
-    rules.dotcomrow/repo-version: "1.0.188"
+    rules.dotcomrow/repo-version: "1.0.190"
     rules.dotcomrow/recovery-retry: "2026-11-17-yugabyte-recovery"
 spec:
   activeDeadlineSeconds: 900
