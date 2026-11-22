@@ -33,7 +33,9 @@ This repo includes placeholders for Workbench project settings:
   listeners, custom tasks (work item handlers), and globals.
 - `src/main/resources/db/example.sql` is a minimal schema stub for app-owned data.
 
-You can edit these from Workbench or in an external IDE.
+Git is the only authoring source for these files. Business Central is an
+operational inspection surface; Workbench edits are unsupported and discarded
+by GitOps reconciliation.
 
 ## Yugabyte Database Example
 `manifests/vault-yugabyte-tool-use-policy.yaml` provisions an app-owned Yugabyte DB using the same
@@ -49,6 +51,9 @@ No static DB password is stored in Kubernetes for this app.
 
 Runtime expectations:
 - KIE Server provides a server-managed datasource at `java:jboss/datasources/ToolUsePolicyDS` wired to the app DB.
+- The KJAR itself remains stateless (`NONE` persistence/audit and `PER_REQUEST`
+  runtime). The example datasource is application-owned persistence, not KIE
+  process or session persistence.
 - Optional overrides in this KJAR:
   - `TOOL_USE_POLICY_DB_JNDI` (defaults to `java:jboss/datasources/ToolUsePolicyDS`)
   - `TOOL_USE_POLICY_DB_SCHEMA` (defaults to `tool_use`)

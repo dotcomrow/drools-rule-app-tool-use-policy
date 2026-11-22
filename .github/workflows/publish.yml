@@ -21,6 +21,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Enforce stateless GitOps rules package
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          forbidden = sorted(
+              path for path in Path("src").rglob("*")
+              if path.is_file() and path.name.lower().endswith((".bpmn", ".bpmn2", ".cmmn"))
+          )
+          if forbidden:
+              raise SystemExit(
+                  "Durable workflow assets are not allowed in the rules-only KIE deployment:\n"
+                  + "\n".join(f" - {path}" for path in forbidden)
+              )
+
+          descriptor = Path("src/main/resources/META-INF/kie-deployment-descriptor.xml")
+          root = ET.parse(descriptor).getroot()
+          namespace = root.tag.split("}")[0].strip("{") if root.tag.startswith("{") else ""
+
+          def value(name):
+              element = root.find(f"{{{namespace}}}{name}" if namespace else name)
+              return (element.text or "").strip() if element is not None else ""
+
+          required = {
+              "audit-mode": "NONE",
+              "persistence-mode": "NONE",
+              "runtime-strategy": "PER_REQUEST",
+          }
+          actual = {name: value(name) for name in required}
+          if actual != required:
+              raise SystemExit(f"Rules-only deployment descriptor must be {required}; found {actual}")
+          PY
+
       - name: Compute version
         run: |
           set -euo pipefail

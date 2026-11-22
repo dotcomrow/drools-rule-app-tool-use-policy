@@ -6,11 +6,11 @@
 <deployment-descriptor
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://www.jboss.org/jbpm deployment-descriptor.xsd">
-  <persistence-unit>org.jbpm.persistence.jpa</persistence-unit>
-  <audit-persistence-unit>org.jbpm.persistence.jpa</audit-persistence-unit>
-  <audit-mode>JPA</audit-mode>
-  <persistence-mode>JPA</persistence-mode>
-  <runtime-strategy>SINGLETON</runtime-strategy>
+  <!-- KIE execution is stateless. The optional datasource below is explicitly
+       application-owned persistence and is independent of KIE session state. -->
+  <audit-mode>NONE</audit-mode>
+  <persistence-mode>NONE</persistence-mode>
+  <runtime-strategy>PER_REQUEST</runtime-strategy>
 
   <!-- Placeholders: keep empty, then add entries as needed. -->
   <marshalling-strategies />
